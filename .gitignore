@@ -39,8 +39,6 @@ venv.bak/
 datasets/*
 !datasets/.gitkeep
 
-# 模型权重与缓存 (如果你偶尔下载到本地)
-models/
 *.pt
 *.pth
 *.bin
