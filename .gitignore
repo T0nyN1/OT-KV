@@ -1,0 +1,61 @@
+# ==========================================
+# OS & IDE
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+out/
+gen/
+
+# VS Code (以防后续使用或协作者使用)
+.vscode/
+
+# ==========================================
+# Python & Virtual Environments
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# Project Specific (OT-KV)
+# ==========================================
+# 数据集目录 (忽略里面的所有下载数据，但保留文件夹结构)
+datasets/*
+!datasets/.gitkeep
+
+# 模型权重与缓存 (如果你偶尔下载到本地)
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+
+misc/
+
+# 评测结果与日志
+results/
+outputs/
+*.log
+
+# Modal 临时文件 (如果产生)
+.modal/
+
+# Jupyter Notebook 检查点
+.ipynb_checkpoints/
