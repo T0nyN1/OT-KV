@@ -22,9 +22,10 @@ class KVCacheManager:
             return past_key_values
 
         if is_prefill:
-            # 执行 Prefill 阶段的策略 (例如 SnapKV 的特征池化)
+            # 必须传入 layer_idx，否则 kwargs.get('layer_idx', 0) 会让所有层覆盖第 0 层！
             return self.policy.process_prefill(
                 past_key_values,
+                layer_idx=layer_idx,  # <--- ADD THIS
                 attention_scores=attention_scores
             )
         else:

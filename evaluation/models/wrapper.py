@@ -15,7 +15,8 @@ def universal_attention_forward(self, hidden_states, attention_mask=None, positi
     q_len = hidden_states.shape[1]
     is_prefill = (q_len > 1 and (past_key_value is None or self._get_cache_len(past_key_value) == 0))
 
-    needs_attention = getattr(self, "cache_manager", None) and self.cache_manager.policy is not None
+    needs_attention = getattr(self, "cache_manager", None) is not None and self.cache_manager.policy is not None
+    # 强制拉取 Attention 以供 Policy 使用 (即使 Caller 不需要)
     should_output_attentions = output_attentions or needs_attention
 
     # 调用原生底层 forward
@@ -29,19 +30,19 @@ def universal_attention_forward(self, hidden_states, attention_mask=None, positi
         **kwargs
     )
 
-    if not use_cache or getattr(self, "cache_manager", None) is None or self.cache_manager.policy is None:
-        # 如果未启用策略，必须根据 caller 期望的 output_attentions 进行退回
+    # 如果未启用策略，或者禁用 Cache，必须严格退回
+    if not use_cache or not needs_attention:
         if should_output_attentions and not output_attentions:
-            attn_output = outputs[0]
-            current_cache = outputs[2] if len(outputs) > 2 else (
-                outputs[1] if len(outputs) == 2 and not isinstance(outputs[1], torch.Tensor) else None)
-            if current_cache is None: current_cache = past_key_value
-            return (attn_output, current_cache) if use_cache else (attn_output,)
+            expected_outputs = (outputs[0],)
+            if use_cache:
+                current_cache = outputs[2] if len(outputs) > 2 else (
+                    outputs[1] if len(outputs) == 2 and not isinstance(outputs[1], torch.Tensor) else past_key_value)
+                expected_outputs += (current_cache,)
+            return expected_outputs
         return outputs
 
     # ==========================================
-    # [核心修复 1] 极其稳健的特征提取
-    # 无论底层是 SDPA 还是 Eager，安全抽离 Weights 和 Cache
+    # [核心修复 1] 安全抽离 Weights 和 Cache
     # ==========================================
     attn_output = outputs[0]
     attn_weights = None
@@ -71,17 +72,19 @@ def universal_attention_forward(self, hidden_states, attention_mask=None, positi
     )
 
     # ==========================================
-    # [核心修复 2] 严格遵循 Caller 协议返回
-    # 彻底解决 LlamaDecoderLayer 读取错位的问题
+    # [核心修复 2] 动态重组返回 Tuple
+    # 彻底解决 "too many values to unpack" 问题
+    # 根据调用者最初的参数请求组装，抹去我们拉取过 Weights 的痕迹
     # ==========================================
-    if output_attentions and use_cache:
-        return attn_output, attn_weights, modified_kv_cache
-    elif output_attentions and not use_cache:
-        return attn_output, attn_weights
-    elif not output_attentions and use_cache:
-        return attn_output, modified_kv_cache
-    else:
-        return (attn_output,)
+    final_outputs = (attn_output,)
+
+    if output_attentions:  # 如果 Caller 明确请求了 attention_weights
+        final_outputs += (attn_weights,)
+
+    if use_cache:  # 如果 Caller 明确请求了 past_key_value
+        final_outputs += (modified_kv_cache,)
+
+    return final_outputs
 
 
 def apply_universal_patch(model, cache_manager: KVCacheManager):

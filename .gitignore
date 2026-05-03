@@ -45,8 +45,6 @@ datasets/*
 *.safetensors
 *.gguf
 
-misc/
-
 # 评测结果与日志
 results/
 outputs/
