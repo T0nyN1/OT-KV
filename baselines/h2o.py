@@ -1,12 +1,16 @@
-# baselines/h2o.py
+# baselines/h2o_cache.py
 import torch
-from evaluation.models.base_policy import BaseKVPolicy
+from evaluation.models.base_cache import BaseCompressCache
 
 
-class H2OPolicy(BaseKVPolicy):
+class H2OCache(BaseCompressCache):
     """
-    H2O (Heavy Hitter Oracle) 缓存压缩策略。
-    算法原理：保留注意力分数最高的 Token (Heavy Hitters) + 最近的 Token (Recent) + 起始 Token (Sink)。
+    H2O (Heavy Hitter Oracle) 缓存压缩策略的 Cache 原生实现。
+
+    保留策略：
+    1. Sink Tokens: 最早的几个起始 Token (维持注意力分布的稳定性)
+    2. Local/Recent Window: 最近生成的若干个 Token
+    3. Heavy Hitters: 累积注意力分数最高的核心 Token
     """
 
     def __init__(self, compression_ratio, recent_window=256, sink_size=4, **kwargs):
@@ -14,118 +18,121 @@ class H2OPolicy(BaseKVPolicy):
         self.recent_window = recent_window
         self.sink_size = sink_size
 
-        # 核心状态：存储每一层每个 Token 的累积注意力分数
-        # key: layer_idx, value: torch.Tensor [batch, num_heads, seq_len]
+        # 核心状态：存储每一层每个 Token 累积被关注的分数
+        # 数据结构: Dict[layer_idx -> Tensor of shape (batch_size, num_heads, seq_len)]
         self.layer_scores = {}
 
-    def _update_scores(self, layer_idx, attention_scores):
+    def process_prefill(self, key_states: torch.Tensor, value_states: torch.Tensor,
+                        layer_idx: int, cache_kwargs: dict):
         """
-        更新注意力分数。attention_scores 维度通常为 [batch, num_heads, q_len, kv_len]。
-        在 Decode 阶段 q_len = 1。
+        Prefill 阶段 (Context 编码)：
+        初始化分数，不对 KV Cache 进行截断（通常 Prefill 阶段全量保留或由外部统一截断）。
         """
-        if attention_scores is None:
-            return
+        # 从暂存区获取 Hook 抓取到的 Prefill Attention Scores
+        # 形状通常为: [batch, heads, q_len, kv_len]
+        attn_scores = self.current_attention_scores.pop(layer_idx, None)
 
-        # 1. 提取当前步的注意力权重 (取最后一行 query 对所有 key 的关注度)
-        # [batch, num_heads, 1, kv_len] -> [batch, num_heads, kv_len]
-        current_step_scores = attention_scores[:, :, -1, :].float()
-
-        if layer_idx not in self.layer_scores:
-            self.layer_scores[layer_idx] = current_step_scores
+        if attn_scores is not None:
+            # 将每个 Token 接收到的所有注意力求和，作为初始的 Heavy Hitter 分数
+            # [batch, heads, q_len, kv_len] -> [batch, heads, kv_len]
+            self.layer_scores[layer_idx] = attn_scores.float().sum(dim=-2)
         else:
-            # 2. 对齐长度：旧分数长度为 L，新分数长度为 L+1 (因为加入了当前 token)
-            old_scores = self.layer_scores[layer_idx]
-            batch, heads, old_len = old_scores.shape
+            # 如果没抓到 (比如底层没开 output_attentions)，兜底初始化为 0
+            batch, heads, _, head_dim = key_states.shape
+            kv_len = key_states.shape[-2]
+            self.layer_scores[layer_idx] = torch.zeros(
+                (batch, heads, kv_len),
+                device=key_states.device,
+                dtype=torch.float32
+            )
 
-            # 将旧分数补 0 后与新分数相加
-            padding = torch.zeros((batch, heads, 1), device=old_scores.device, dtype=old_scores.dtype)
-            updated_scores = torch.cat([old_scores, padding], dim=-1) + current_step_scores
-            self.layer_scores[layer_idx] = updated_scores
+        return key_states, value_states
 
-    def process_prefill(self, past_key_values, attention_scores=None, **kwargs):
+    def process_decode_step(self, key_states: torch.Tensor, value_states: torch.Tensor,
+                            layer_idx: int, cache_kwargs: dict):
         """
-        Prefill 阶段结束后，初始化分数。
+        Decode 阶段 (单步生成)：
+        更新计分板 -> 判定是否超预算 -> 从历史缓存中驱逐低分 Token -> 返回当前 Token。
         """
-        # 如果模型输出了 Prefill 阶段的完整 Attention (O(N^2))，我们取均值作为初始分
-        if attention_scores is not None:
-            layer_idx = kwargs.get('layer_idx', 0)
-            # 对 query 维度求和 [batch, heads, q_len, kv_len] -> [batch, heads, kv_len]
-            self.layer_scores[layer_idx] = attention_scores.float().sum(dim=-2)
+        # 当前层历史缓存的长度
+        hist_len = self.get_seq_length(layer_idx)
+        if hist_len == 0:
+            return key_states, value_states
 
-        return past_key_values
-
-    def process_decode_step(self, past_key_values, layer_idx, attention_scores=None, **kwargs):
-        """
-        Decode 步进：更新分数 -> 判定预算 -> 执行驱逐
-        """
         # 1. 更新计分板
-        self._update_scores(layer_idx, attention_scores)
+        attn_scores = self.current_attention_scores.pop(layer_idx, None)
+        if attn_scores is not None:
+            # Decode 阶段 q_len = 1，attn_scores 形状: [batch, heads, 1, hist_len + 1]
+            current_step_scores = attn_scores[:, :, 0, :].float()
 
-        # 获取当前 Cache 状态
-        # 兼容 DynamicCache 或 Tuple 格式
-        if hasattr(past_key_values, "key_cache"):
-            k_cache = past_key_values.key_cache[layer_idx]
-            v_cache = past_key_values.value_cache[layer_idx]
-        else:
-            k_cache, v_cache = past_key_values[0], past_key_values[1]
+            # 分离出对历史 Token 的关注度和对当前新 Token (Self) 的关注度
+            score_to_past = current_step_scores[:, :, :hist_len]
+            score_to_self = current_step_scores[:, :, hist_len:]
 
-        current_len = k_cache.shape[-2]
+            # 累加历史分数，并拼上新 Token 的分数
+            self.layer_scores[layer_idx] += score_to_past
+            self.layer_scores[layer_idx] = torch.cat([self.layer_scores[layer_idx], score_to_self], dim=-1)
 
-        # 2. 判定是否需要驱逐
-        # 计算总预算：基于压缩率，且不能小于 sink + recent
-        budget = max(int(current_len * self.compression_ratio), self.sink_size + self.recent_window + 1)
+        # 2. 计算预算
+        total_len = hist_len + 1  # 历史长度 + 当前新生成的 1 个 Token
+        budget = max(
+            int(total_len * self.compression_ratio),
+            self.sink_size + self.recent_window + 1
+        )
 
-        if current_len <= budget:
-            return past_key_values
+        # 如果没有超预算，直接返回当前 token，底层会自动拼接到 Cache 中
+        if total_len <= budget:
+            return key_states, value_states
 
-        # 3. 执行 H2O 驱逐逻辑
-        # 划分区间：[0, sink_size] | [sink_size, recent_start] | [recent_start, current_len]
-        recent_start = current_len - self.recent_window
-        heavy_budget = budget - self.recent_window - self.sink_size
+        # 3. 触发驱逐 (Eviction)
+        # 因为即将拼接 1 个新 Token，所以历史缓存 (hist_len) 只能保留 (budget - 1) 个
+        historical_budget = budget - 1
 
-        scores = self.layer_scores[layer_idx]
+        # 近期窗口需要给当前新 Token 留 1 个位置
+        recent_keep = self.recent_window - 1
+        heavy_budget = historical_budget - self.sink_size - recent_keep
 
-        # 获取中间区域 (剔除 sink 和 recent) 的分数进行排序
-        middle_scores = scores[:, :, self.sink_size:recent_start]
-
-        # 挑选 Heavy Hitters
-        _, topk_indices = torch.topk(middle_scores, heavy_budget, dim=-1)
-        # 映射回全局索引
-        topk_indices = topk_indices + self.sink_size
-
-        # 组装最终保留的索引
+        # 获取历史 Token 的分数 [batch, heads, hist_len]
+        # 注意：这里我们只截取历史长度的分数进行排序，新 token 还没进缓存
+        scores = self.layer_scores[layer_idx][:, :, :hist_len]
         batch, heads = scores.shape[0], scores.shape[1]
+        device = scores.device
 
-        # Sink 索引
-        sink_indices = torch.arange(self.sink_size, device=scores.device).view(1, 1, -1).expand(batch, heads, -1)
-        # Recent 索引
-        recent_indices = torch.arange(recent_start, current_len, device=scores.device).view(1, 1, -1).expand(batch,
+        # 生成保留的索引
+        sink_indices = torch.arange(self.sink_size, device=device).view(1, 1, -1).expand(batch, heads, -1)
+        recent_indices = torch.arange(hist_len - recent_keep, hist_len, device=device).view(1, 1, -1).expand(batch,
                                                                                                              heads, -1)
 
-        # 合并所有保留索引并排序
-        keep_indices = torch.cat([sink_indices, topk_indices, recent_indices], dim=-1)
-        keep_indices = torch.sort(keep_indices, dim=-1).values  # [batch, heads, budget]
+        if heavy_budget > 0:
+            # 截取中间部分计算 Top-K
+            middle_scores = scores[:, :, self.sink_size: hist_len - recent_keep]
+            _, topk_indices = torch.topk(middle_scores, heavy_budget, dim=-1)
+            # 将 Top-K 的相对索引映射回全局索引
+            topk_indices = topk_indices + self.sink_size
 
-        # 4. 更新 KV Cache 和 分数缓存
+            keep_indices = torch.cat([sink_indices, topk_indices, recent_indices], dim=-1)
+        else:
+            keep_indices = torch.cat([sink_indices, recent_indices], dim=-1)
+
+        # 对保留索引进行排序，保证序列时间位置不乱
+        keep_indices = torch.sort(keep_indices, dim=-1).values
+
+        # 4. 执行历史缓存驱逐
         def gather_kv(tensor, indices):
-            # tensor: [B, H, L, D], indices: [B, H, Budget]
+            # tensor: [B, H, L, D], indices: [B, H, Keep_L]
             head_dim = tensor.shape[-1]
             idx = indices.unsqueeze(-1).expand(-1, -1, -1, head_dim)
             return torch.gather(tensor, dim=2, index=idx)
 
-        new_k = gather_kv(k_cache, keep_indices)
-        new_v = gather_kv(v_cache, keep_indices)
+        # 更新底层 Cache
+        self.key_cache[layer_idx] = gather_kv(self.key_cache[layer_idx], keep_indices)
+        self.value_cache[layer_idx] = gather_kv(self.value_cache[layer_idx], keep_indices)
 
-        # 同步更新分数缓存
-        self.layer_scores[layer_idx] = torch.gather(scores, dim=2, index=keep_indices)
+        # 同步更新计分板 (只保留未被驱逐的分数 + 最新的那个 Token 的分数)
+        survived_scores = torch.gather(scores, dim=2, index=keep_indices)
+        latest_token_score = self.layer_scores[layer_idx][:, :, -1:]  # 刚刚拼上去的当前 token 分数
+        self.layer_scores[layer_idx] = torch.cat([survived_scores, latest_token_score], dim=-1)
 
-        # 5. 写回并返回 (根据类型)
-        if hasattr(past_key_values, "key_cache"):
-            past_key_values.key_cache[layer_idx] = new_k
-            past_key_values.value_cache[layer_idx] = new_v
-            # 关键：手动同步 DynamicCache 的 seen_tokens 状态，防止偏移错误
-            if layer_idx == 0:
-                past_key_values._seen_tokens = new_k.shape[-2]
-            return past_key_values
-        else:
-            return (new_k, new_v)
+        # 5. 返回当前新 Token 的 KV
+        # BaseCompressCache 的 update 逻辑拿到返回值后，会把它追加到刚被你压缩好的 self.key_cache 末尾
+        return key_states, value_states
