@@ -9,17 +9,13 @@ class BaseCompressCache(DynamicCache):
     包含实时的 Cache 长度监控功能。
     """
 
-    def __init__(self, compression_ratio: float, enable_monitor: bool = True, **kwargs):
+    def __init__(self, compression_ratio: float, **kwargs):
         super().__init__()
         self.compression_ratio = compression_ratio
         self.kwargs = kwargs
 
         # 暂存当前 step 各层的 attention scores
         self.current_attention_scores = {}
-
-        # 监控相关状态
-        self.enable_monitor = enable_monitor
-        self.decode_step = 0
 
     def update(self, key_states: torch.Tensor, value_states: torch.Tensor, layer_idx: int, cache_kwargs=None) -> tuple[
         torch.Tensor, torch.Tensor]:
@@ -38,22 +34,22 @@ class BaseCompressCache(DynamicCache):
         else:
             stage_name = "Decode"
             key_states, value_states = self.process_decode_step(key_states, value_states, layer_idx, cache_kwargs)
-            # 仅在 layer_idx == 0 时步进，防止多层重复计数
-            if layer_idx == 0:
-                self.decode_step += 1
 
         # 2. 调用父类方法真正写入 Cache 状态 (self.key_cache 等)
         result = super().update(key_states, value_states, layer_idx, cache_kwargs)
 
         # [监控 2] 记录写入新 Token / 驱逐老 Token 后的最终 Cache 长度
         post_cache_len = self.get_seq_length(layer_idx)
-
-        # 3. 完美还原你指定的监控格式 (仅在第 0 层打印)
-        if self.enable_monitor and layer_idx == 0:
-            print(f"[KV Monitor] Stage: {stage_name:<7} | "
-                  f"New Tokens (q_len): {q_len:<4} | "
-                  f"Cache Before: {pre_cache_len:<5} | "
-                  f"Cache After: {post_cache_len:<5}")
+        if layer_idx == 0:
+            log_str = (f"[KV Monitor] Stage: {stage_name:<7} | "
+                       f"New Tokens (q_len): {q_len:<4} | "
+                       f"Cache Before: {pre_cache_len:<5} | "
+                       f"Cache After: {post_cache_len:<5}")
+            clear_to_end = "\033[K"
+            if stage_name == "Prefill":
+                print(f"\r{log_str}{clear_to_end}", flush=True)
+            else:
+                print(f"\r{log_str}{clear_to_end}", end="", flush=True)
 
         return result
 

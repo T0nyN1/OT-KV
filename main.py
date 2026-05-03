@@ -19,8 +19,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
     cache_kwargs = {}
 
     if method == "baseline":
-        # Baseline 使用 None，EvaluatorHFLM 内部会默认使用原生 DynamicCache
-        cache_class = None
+        from baselines.baseline import BaselineCache
+        cache_class = BaselineCache
         cache_kwargs = {}
 
     elif method == "h2o":

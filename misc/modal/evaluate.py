@@ -79,13 +79,11 @@ def run_framework_on_modal(
 def run(
         # 基础配置
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        method: str = "baseline",
+        method: str = "h2o",
         task: str = "wikitext",
-        # 评测配置
         prefill_fraction: float = 0.1,
         max_length: int = 4096,
-        limit: int = 0,  # Modal CLI 对 None 的支持不太好，我们用 0 代表 None
-        # 压缩策略超参数 (透传给 H2O 等 Cache 子类)
+        limit: int = 2,
         compression_ratio: float = 0.5,
         recent_window: int = 256,
         sink_size: int = 4,
