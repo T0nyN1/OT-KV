@@ -1,12 +1,5 @@
 # evaluation/tasks/longbench.py
-import json
-import os
-import urllib.request
-import zipfile
 from typing import Dict, Any
-
-import torch
-from tqdm import tqdm
 
 from .base_evaluator import BaseEvaluator
 from .registry import register_task
@@ -17,22 +10,40 @@ class LongBenchEvaluator(BaseEvaluator):
     """LongBench 原生评测任务"""
 
     def evaluate(self) -> Dict[str, Any]:
-        tasks = self.args.get('longbench_tasks', "qasper").split(",")
+        import json
+        import os
+        import urllib.request
+        import zipfile
+        import torch
+        from tqdm import tqdm
+
         max_length = self.args.get('longbench_max_length', 7500)
         tokenizer = self.model_wrapper.tokenizer
         model = self.model_wrapper._model
 
-        data_dir = "datasets/LongBench_dataset"
-        data_folder = os.path.join(data_dir, "data")
+        longbench_dir = self.args.get("longbench_dir", "./datasets/LongBench_dataset")
+        data_folder = os.path.join(longbench_dir, "data")
 
+        # 1. 先检查并下载数据集 (必须在获取 tasks 列表之前执行)
         if not os.path.exists(data_folder):
-            print(f"\n[*] Downloading LongBench directly to {data_dir}...")
-            os.makedirs(data_dir, exist_ok=True)
+            print(f"\n[*] Downloading LongBench directly to {longbench_dir}...")
+            os.makedirs(longbench_dir, exist_ok=True)
             zip_url = "https://huggingface.co/datasets/THUDM/LongBench/resolve/main/data.zip"
-            zip_path = os.path.join(data_dir, "data.zip")
+            zip_path = os.path.join(longbench_dir, "data.zip")
             urllib.request.urlretrieve(zip_url, zip_path)
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(data_dir)
+                zip_ref.extractall(longbench_dir)
+
+        # 2. 动态获取需要评测的 tasks 列表
+        # 如果未传入 longbench_tasks，或者传入了 "all"，则自动遍历目录下所有 jsonl 文件
+        tasks_arg = self.args.get('longbench_tasks', "all")
+
+        if tasks_arg.strip().lower() == "all" or not tasks_arg:
+            # 获取所有以 .jsonl 结尾的文件名，并去掉后缀作为 task name
+            tasks = [f.replace(".jsonl", "") for f in os.listdir(data_folder) if f.endswith(".jsonl")]
+            print(f"\n[*] No specific tasks provided. Found {len(tasks)} tasks in dataset directory.")
+        else:
+            tasks = tasks_arg.split(",")
 
         all_results = {}
         for task in tasks:
@@ -41,15 +52,29 @@ class LongBenchEvaluator(BaseEvaluator):
             file_path = os.path.join(data_folder, f"{task}.jsonl")
 
             if not os.path.exists(file_path):
+                print(f"[!] Warning: Task file {file_path} not found. Skipping...")
                 continue
 
             dataset = [json.loads(line) for line in open(file_path, 'r', encoding='utf-8')]
             if self.args.get('limit', None):
                 dataset = dataset[:self.args.get('limit')]
 
+            limit = self.args.get('limit', None)
+            if limit:
+                dataset = dataset[:limit]
+
             task_score = 0
             for item in tqdm(dataset, desc=f"Evaluating {task}"):
-                prompt = f"Context:\n{item['context']}\n\nQuestion:\n{item['input']}\n\nAnswer:"
+                context = item['context']
+                query = item['input']
+                answers = item["answers"]
+
+                # 1. 动态构造 User Message (适配非 QA 任务)
+                if query.strip():
+                    prompt = f"Please read the following context and answer the question.\n\nContext:\n{context}\n\nQuestion:\n{query}"
+                else:
+                    # 对于 lcc (代码补全) 等没有 question 的任务，直接给 context
+                    prompt = context
                 input_ids = tokenizer.encode(prompt, add_special_tokens=False)
 
                 if len(input_ids) > max_length:
@@ -58,32 +83,32 @@ class LongBenchEvaluator(BaseEvaluator):
 
                 input_tensor = torch.tensor([input_ids]).to(model.device)
 
-                # ==================================================
-                # [核心适配] 初始化自定义 Cache
-                # ==================================================
                 custom_cache = self.model_wrapper._setup_cache_and_hooks()
 
-                try:
-                    with torch.no_grad():
-                        output_ids = model.generate(
-                            input_tensor,
-                            max_new_tokens=64,
-                            do_sample=False,
-                            pad_token_id=tokenizer.eos_token_id,
-                            past_key_values=custom_cache,  # 传入缓存策略
-                            output_attentions=True,        # 开启 Attention 抓取
-                            use_cache=True
-                        )
-                finally:
-                    self._cleanup_cache_and_hooks(custom_cache)
+                with torch.no_grad():
+                    output_ids = model.generate(
+                        input_tensor,
+                        max_new_tokens=64,
+                        do_sample=False,
+                        pad_token_id=tokenizer.eos_token_id,
+                        past_key_values=custom_cache,  # 传入缓存策略
+                        output_attentions=True,  # 开启 Attention 抓取
+                        use_cache=True
+                    )
+                self._cleanup_cache_and_hooks(custom_cache)
 
-                response = tokenizer.decode(output_ids[0][input_tensor.shape[1]:],
-                                            skip_special_tokens=True).strip().lower()
-                is_correct = any(str(ans).lower() in response for ans in item["answers"])
+                generated_tokens = output_ids[0][input_tensor.shape[1]:]
+                response = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+
+                response_lower = response.lower()
+                is_correct = any(str(ans).lower() in response_lower for ans in answers)
                 task_score += 1 if is_correct else 0
 
-            accuracy = task_score / len(dataset) if dataset else 0
-            all_results[task] = {"accuracy": accuracy}
+            accuracy = task_score / len(dataset) if len(dataset) > 0 else 0
+            all_results[task] = {
+                "accuracy": accuracy,
+                "tested_samples": len(dataset)
+            }
             print(f"-> {task} Accuracy: {accuracy * 100:.2f}%")
 
         return {"longbench": all_results}

@@ -80,9 +80,9 @@ def run(
         # 基础配置
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
         method: str = "baseline",
-        task: str = "niah",
+        task: str = "longbench",
         prefill_fraction: float = 0.1,
-        max_length: int = 32000,
+        max_length: int = 4096,
         limit: int = 2,
         compression_ratio: float = 0.5,
         recent_window: int = 256,
@@ -92,6 +92,9 @@ def run(
         "compression_ratio": compression_ratio,
         "recent_window": recent_window,
         "sink_size": sink_size,
+        "haystack_dir": "/ot_kv_data/datasets/niah/PaulGrahamEssays",
+        "longbench_dir": "ot_kv_data/datasets/LongBench_Dataset",
+        "longbench_tasks": "qasper"
     }
 
     # 处理 limit 的特殊情况

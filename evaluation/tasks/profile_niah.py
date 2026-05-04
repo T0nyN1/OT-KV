@@ -25,7 +25,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
         prompt_length = self.args.get('profiler_prompt_length', 4000)
         generate_length = self.args.get('profiler_gen_length', 128)
-        haystack_dir = self.args.get('haystack_dir', "./LLMTest_NeedleInAHaystack/PaulGrahamEssays")
+        haystack_dir = self.args.get('haystack_dir', "./datasets/PaulGrahamEssays")
 
         text_files = glob.glob(os.path.join(haystack_dir, "*.txt"))
         if not text_files:
@@ -87,21 +87,19 @@ class ProfileNIAHEvaluator(BaseEvaluator):
         start_time = time.time()
         ttft_tracker.start_time = start_time
 
-        try:
-            with torch.no_grad():
-                output_ids = model.generate(
-                    inputs.input_ids,
-                    max_new_tokens=generate_length,
-                    min_new_tokens=generate_length,
-                    do_sample=False,
-                    pad_token_id=tokenizer.eos_token_id,
-                    past_key_values=custom_cache,  # 应用压缩策略
-                    output_attentions=True,  # 保证 Hook 生效
-                    use_cache=True,
-                    logits_processor=logits_processor
-                )
-        finally:
-            self._cleanup_cache_and_hooks(custom_cache)
+        with torch.no_grad():
+            output_ids = model.generate(
+                inputs.input_ids,
+                max_new_tokens=generate_length,
+                min_new_tokens=generate_length,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+                past_key_values=custom_cache,  # 应用压缩策略
+                output_attentions=True,  # 保证 Hook 生效
+                use_cache=True,
+                logits_processor=logits_processor
+            )
+        self._cleanup_cache_and_hooks(custom_cache)
 
         torch.cuda.synchronize()
         end_time = time.time()
@@ -127,8 +125,12 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
         return {
             "profile_niah": {
+                "context_length_tokens": inputs.input_ids.shape[1],
+                "total_time_s": total_time,
                 "ttft_s": ttft,
+                "pure_decode_time_s": decode_time,
                 "pure_decode_throughput_tps": decode_tps,
+                "overall_throughput_tps": overall_tps,
                 "peak_memory_mb": peak_memory_mb,
             }
         }

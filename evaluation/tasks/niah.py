@@ -68,19 +68,17 @@ class NIAHEvaluator(BaseEvaluator):
 
                 custom_cache = self.model_wrapper._setup_cache_and_hooks()
 
-                try:
-                    with torch.no_grad():
-                        output_ids = model.generate(
-                            inputs.input_ids,
-                            max_new_tokens=50,
-                            do_sample=False,
-                            pad_token_id=tokenizer.eos_token_id,
-                            past_key_values=custom_cache,
-                            output_attentions=True,
-                            use_cache=True
-                        )
-                finally:
-                    self._cleanup_cache_and_hooks(custom_cache)
+                with torch.no_grad():
+                    output_ids = model.generate(
+                        inputs.input_ids,
+                        max_new_tokens=50,
+                        do_sample=False,
+                        pad_token_id=tokenizer.eos_token_id,
+                        past_key_values=custom_cache,
+                        output_attentions=True,
+                        use_cache=True
+                    )
+                self._cleanup_cache_and_hooks(custom_cache)
 
                 generated_tokens = output_ids[0][inputs.input_ids.shape[1]:]
                 response = tokenizer.decode(generated_tokens, skip_special_tokens=True).lower()
