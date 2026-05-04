@@ -80,7 +80,7 @@ def run(
         # 基础配置
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
         method: str = "baseline",
-        task: str = "wikitext",
+        task: str = "niah",
         prefill_fraction: float = 0.1,
         max_length: int = 4096,
         limit: int = 2,

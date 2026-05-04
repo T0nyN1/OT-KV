@@ -75,10 +75,7 @@ class LongBenchEvaluator(BaseEvaluator):
                             use_cache=True
                         )
                 finally:
-                    # [核心适配] 清理 Hook
-                    for h in getattr(self.model_wrapper, '_hooks', []):
-                        h.remove()
-                    self.model_wrapper._hooks.clear()
+                    self._cleanup_cache_and_hooks(custom_cache)
 
                 response = tokenizer.decode(output_ids[0][input_tensor.shape[1]:],
                                             skip_special_tokens=True).strip().lower()

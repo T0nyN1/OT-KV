@@ -101,10 +101,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
                     logits_processor=logits_processor
                 )
         finally:
-            # 清理 Hook
-            for h in getattr(self.model_wrapper, '_hooks', []):
-                h.remove()
-            self.model_wrapper._hooks.clear()
+            self._cleanup_cache_and_hooks(custom_cache)
 
         torch.cuda.synchronize()
         end_time = time.time()

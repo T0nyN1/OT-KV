@@ -91,10 +91,7 @@ class RulerEvaluator(BaseEvaluator):
                             use_cache=True
                         )
                 finally:
-                    # [核心适配] 每次推理完毕，清理 Hook 防止状态污染
-                    for h in getattr(self.model_wrapper, '_hooks', []):
-                        h.remove()
-                    self.model_wrapper._hooks.clear()
+                    self._cleanup_cache_and_hooks(custom_cache)
 
                 # 提取模型新生成的 token
                 generated_tokens = output_ids[0][input_tensor.shape[1]:]

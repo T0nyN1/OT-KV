@@ -39,10 +39,10 @@ class KVRecoveryEvaluator(BaseEvaluator):
                     output_attentions=True
                 )
                 cache_compressed = outputs_compressed.past_key_values
+                if hasattr(cache_compressed, "on_prefill_end"):
+                    cache_compressed.on_prefill_end()
         finally:
-            for h in getattr(self.model_wrapper, '_hooks', []):
-                h.remove()
-            self.model_wrapper._hooks.clear()
+            self._cleanup_cache_and_hooks(custom_cache)
 
         # ==================================================
         # 2. 运行基线原生模型 (Dense)
