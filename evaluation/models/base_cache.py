@@ -30,10 +30,10 @@ class BaseCompressCache(DynamicCache):
         # 1. 阶段分发与自定义处理
         if is_prefill or q_len > 1:
             stage_name = "Prefill"
-            key_states, value_states = self.process_prefill(key_states, value_states, layer_idx, cache_kwargs)
+            key_states, value_states = self.on_prefill(key_states, value_states, layer_idx, cache_kwargs)
         else:
             stage_name = "Decode"
-            key_states, value_states = self.process_decode_step(key_states, value_states, layer_idx, cache_kwargs)
+            key_states, value_states = self.on_decode_step(key_states, value_states, layer_idx, cache_kwargs)
 
         # 2. 调用父类方法真正写入 Cache 状态 (self.key_cache 等)
         result = super().update(key_states, value_states, layer_idx, cache_kwargs)
@@ -53,8 +53,11 @@ class BaseCompressCache(DynamicCache):
 
         return result
 
-    def process_prefill(self, key_states, value_states, layer_idx, cache_kwargs):
-        return key_states, value_states
+    def on_prefill(self, key_states, value_states, layer_idx, cache_kwargs):
+        raise NotImplementedError
 
-    def process_decode_step(self, key_states, value_states, layer_idx, cache_kwargs):
+    def on_decode_step(self, key_states, value_states, layer_idx, cache_kwargs):
+        raise NotImplementedError
+
+    def on_prefill_end(self):
         raise NotImplementedError

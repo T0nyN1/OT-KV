@@ -120,6 +120,7 @@ class EvaluatorHFLM(HFLM):
                     output_attentions=True,  # 确保输出以供 Hook 抓取
                     return_dict=True
                 )
+                past_key_values.on_prefill_end()
 
                 last_logit = outputs.logits[:, -1:, :]
                 total_logprob = 0.0
@@ -142,6 +143,7 @@ class EvaluatorHFLM(HFLM):
                         input_ids=target_token,
                         past_key_values=past_key_values,
                         use_cache=True,
+                        position_ids=torch.tensor([[split_idx + i]], device=device),
                         output_attentions=True,
                         return_dict=True
                     )

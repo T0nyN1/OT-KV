@@ -1,6 +1,5 @@
 # main.py
 import argparse
-import torch
 
 from evaluation.models.wrapper import EvaluatorHFLM
 from evaluation.tasks.registry import get_evaluator
@@ -39,10 +38,43 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         # cache_kwargs = {"compression_ratio": kwargs.get('compression_ratio', 0.5)}
         pass
 
-    elif method in ["streamingllm", "snapkv", "pyramidkv"]:
-        # 可以在此处继续扩展其他基于 Cache 子类的算法
-        print(f"[System] Method {method} is planned but not yet implemented in this snippet.")
-        raise NotImplementedError
+    elif method == "streamingllm":
+        from baselines.streamingllm import StreamingLLMCache
+        cache_class = StreamingLLMCache
+        cache_kwargs = {
+            "compression_ratio": kwargs.get('compression_ratio', 1.0),
+            "recent_window": kwargs.get('recent_window', 256),
+            "sink_size": 4 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+        }
+
+    elif method == "snapkv":
+        from baselines.snapkv import SnapKVCache
+        cache_class = SnapKVCache
+        cache_kwargs = {
+            "compression_ratio": kwargs.get('compression_ratio', 0.5),
+            "recent_window": kwargs.get('recent_window', 256),
+            "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+            "observation_window": kwargs.get('observation_window', None),
+        }
+
+    elif method == "pyramidkv":
+        from baselines.pyramidkv import PyramidKVCache
+        cache_class = PyramidKVCache
+        cache_kwargs = {
+            "compression_ratio": kwargs.get('compression_ratio', 0.5),
+            "recent_window": kwargs.get('recent_window', 256),
+            "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+            "observation_window": kwargs.get('observation_window', None),
+        }
+
+    elif method == "echokv":
+        from baselines.echokv import EchoKVCache
+        cache_class = EchoKVCache
+        cache_kwargs = {
+            "compression_ratio": kwargs.get('compression_ratio', 0.5),
+            "recent_window": kwargs.get('recent_window', 256),
+            "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+        }
 
     else:
         raise ValueError(f"Unknown method: {method}")
@@ -104,6 +136,8 @@ def run():
                         help="Size of the local/recent window for algorithms like H2O or StreamingLLM")
     parser.add_argument("--sink_size", type=int, default=4,
                         help="Number of initial/sink tokens to retain")
+    parser.add_argument("--observation_window", type=int, default=None,
+                        help="Query window used to score prompt tokens for SnapKV/PyramidKV")
 
     # 评测流程控制
     parser.add_argument("--prefill_fraction", type=float, default=0.1,

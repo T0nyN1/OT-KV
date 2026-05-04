@@ -1,5 +1,6 @@
 # baselines/baseline.py
 import torch
+
 from evaluation.models.base_cache import BaseCompressCache
 
 
@@ -14,8 +15,8 @@ class BaselineCache(BaseCompressCache):
         # Baseline 不需要压缩，为了兼容基类的初始化签名，我们将压缩率设为 1.0 (保留 100%)
         super().__init__(compression_ratio=1.0, **kwargs)
 
-    def process_prefill(self, key_states: torch.Tensor, value_states: torch.Tensor,
-                        layer_idx: int, cache_kwargs: dict):
+    def on_prefill(self, key_states: torch.Tensor, value_states: torch.Tensor,
+                   layer_idx: int, cache_kwargs: dict):
         """
         Prefill 阶段 (Context 编码)：
         直接返回传入的 KV 张量，不进行任何截断。
@@ -25,8 +26,11 @@ class BaselineCache(BaseCompressCache):
 
         return key_states, value_states
 
-    def process_decode_step(self, key_states: torch.Tensor, value_states: torch.Tensor,
-                            layer_idx: int, cache_kwargs: dict):
+    def on_prefill_end(self):
+        pass
+
+    def on_decode_step(self, key_states: torch.Tensor, value_states: torch.Tensor,
+                       layer_idx: int, cache_kwargs: dict):
         """
         Decode 阶段 (自回归生成单 Token)：
         在这里，key_states 和 value_states 是当前步生成的【最新 1 个 Token】的 KV。
