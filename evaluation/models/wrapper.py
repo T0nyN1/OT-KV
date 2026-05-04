@@ -7,20 +7,25 @@ from transformers.cache_utils import DynamicCache
 
 
 def _get_attention_hook(cache_obj, layer_idx):
-    """
-    PyTorch Forward Hook: 负责将 Attention 模块输出的权重静默传递给 Cache 对象。
-    """
-
     def hook(module, inputs, outputs):
-        # 在 HuggingFace 模型中，Attention 层的输出通常是一个 tuple:
-        # (attn_output, attn_weights, past_key_value)
-        # 我们只需要第二个元素 attn_weights
         if isinstance(outputs, tuple) and len(outputs) > 1:
             attn_weights = outputs[1]
             if attn_weights is not None:
-                # 将权重存入 Cache 实例的暂存区，供其内部的 update/process 方法使用
-                # 使用 detach() 避免梯度残留
-                cache_obj.current_attention_scores[layer_idx] = attn_weights.detach()
+                with torch.no_grad():
+                    # 1. 求和并转移到 CPU，彻底离开显存
+                    accumulated_score = attn_weights.sum(dim=-2).detach().cpu()
+                    cache_obj.current_attention_scores[layer_idx] = accumulated_score
+
+                # 2. 【核心！显存物理粉碎】
+                # 在 Hook 内部直接剥夺这个 4GB 矩阵的底层显存，
+                # 这样哪怕 HF 外部还有循环在引用它，拿到的也只是一个 0 字节的空壳！
+                attn_weights.untyped_storage().resize_(0)
+
+                # 3. 替换并切断链条
+                new_outputs = list(outputs)
+                new_outputs[1] = None
+                return tuple(new_outputs)
+
         return outputs
 
     return hook

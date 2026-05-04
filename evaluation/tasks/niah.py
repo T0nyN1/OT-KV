@@ -19,7 +19,7 @@ class NIAHEvaluator(BaseEvaluator):
         model = self.model_wrapper._model
 
         haystack_dir = self.args.get('haystack_dir', "datasets/niah/PaulGrahamEssays")
-        max_context_length = self.args.get('max_context_length', 8000)
+        max_length = self.model_wrapper.max_length
         context_intervals = self.args.get('context_intervals', 5)
         depth_intervals = self.args.get('depth_intervals', 5)
 
@@ -33,7 +33,7 @@ class NIAHEvaluator(BaseEvaluator):
         full_text = "".join(open(f, 'r', encoding='utf-8').read() + "\n\n" for f in text_files)
         full_text_tokens = tokenizer.encode(full_text, add_special_tokens=False)
 
-        context_lengths = [int(x) for x in torch.linspace(1000, max_context_length, context_intervals)]
+        context_lengths = [int(x) for x in torch.linspace(1000, max_length, context_intervals)]
         depths = [float(x) for x in torch.linspace(0, 1, depth_intervals)]
         results_list = []
 

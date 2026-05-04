@@ -82,7 +82,7 @@ def run(
         method: str = "baseline",
         task: str = "niah",
         prefill_fraction: float = 0.1,
-        max_length: int = 4096,
+        max_length: int = 32000,
         limit: int = 2,
         compression_ratio: float = 0.5,
         recent_window: int = 256,
