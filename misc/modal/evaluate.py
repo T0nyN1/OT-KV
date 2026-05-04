@@ -7,17 +7,17 @@ data_volume = modal.Volume.from_name("ot_kv_data")
 
 # 1. 配置运行环境，并把代码挂载逻辑直接链式写在 Image 里
 eval_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.12")
     .pip_install(
-        "torch",
-        "transformers",
+        "torch==2.11.0",
+        "transformers==5.7.0",
         "accelerate",
         "lm-eval",
         "wonderwords",
         "nltk",
         "datasets",
         "tiktoken",
-        "hf_transfer"  # 推荐加入：加速 HuggingFace 上的模型下载
+        "hf_transfer"
     )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})  # 开启 hf_transfer
     .add_local_dir(
@@ -93,7 +93,7 @@ def run(
         "recent_window": recent_window,
         "sink_size": sink_size,
         "haystack_dir": "/ot_kv_data/datasets/niah/PaulGrahamEssays",
-        "longbench_dir": "ot_kv_data/datasets/LongBench_Dataset",
+        "longbench_dir": "/ot_kv_data/datasets/LongBench_Dataset",
         "longbench_tasks": "qasper"
     }
 
