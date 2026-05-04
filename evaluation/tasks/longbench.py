@@ -103,17 +103,16 @@ class LongBenchEvaluator(BaseEvaluator):
                     # 对于 lcc (代码补全) 等没有 question 的任务，直接给 context
                     prompt = context
                 messages = [{"role": "user", "content": prompt}]
-                input_ids = tokenizer.apply_chat_template(
+                input_tensor = tokenizer.apply_chat_template(
                     messages,
                     add_generation_prompt=True,
-                    tokenize=True,
-                )
+                    return_tensors="pt",
+                )["input_ids"].to(model.device)
 
-                if len(input_ids) > max_length:
+                if input_tensor.shape[1] > max_length:
                     half = max_length // 2
-                    input_ids = input_ids[:half] + input_ids[-half:]
+                    input_tensor = torch.cat([input_tensor[:, :half], input_tensor[:, -half:]], dim=1)
 
-                input_tensor = torch.tensor([input_ids]).to(model.device)
                 attention_mask = torch.ones_like(input_tensor)
 
                 custom_cache = self.model_wrapper._setup_cache_and_hooks()
