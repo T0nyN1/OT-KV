@@ -68,13 +68,13 @@ class H2OCache(BaseCompressCache):
             positions = self.token_positions[layer_idx]
             scores = self.hh_scores[layer_idx]
             total_tokens = self.total_seen_tokens.get(layer_idx, positions.numel())
-            budget = self._target_budget(total_tokens)
+            self._target_budget(total_tokens)
 
             keep_indices = self._select_keep_indices(
                 positions=positions,
                 scores=scores,
                 total_tokens=total_tokens,
-                budget=budget,
+                budget=self.budget,
             )
 
             self._prune_existing_cache(layer_idx, keep_indices)
@@ -101,7 +101,7 @@ class H2OCache(BaseCompressCache):
         scores = torch.cat([self.hh_scores[layer_idx].to(device), new_scores])
 
         if compress:
-            budget = self._target_budget(total_after)
+            self._target_budget(total_after)
             force_keep = None
             if force_new_tokens:
                 force_keep = torch.arange(existing_len, existing_len + q_len,
@@ -110,7 +110,7 @@ class H2OCache(BaseCompressCache):
                 positions=positions,
                 scores=scores,
                 total_tokens=total_after,
-                budget=budget,
+                budget=self.budget,
                 force_keep=force_keep,
             )
         else:
@@ -172,13 +172,6 @@ class H2OCache(BaseCompressCache):
             scores = scores.sum(dim=reduce_dims)
         return scores.reshape(-1)
 
-    def _target_budget(self, total_tokens: int) -> int:
-        if total_tokens <= 0:
-            return 0
-        ratio_budget = math.ceil(total_tokens * self.compression_ratio)
-        min_budget = min(total_tokens, self.sink_size + 1)
-        return min(total_tokens, max(1, min_budget, ratio_budget))
-
     def _select_keep_indices(self, positions: torch.Tensor, scores: torch.Tensor,
                              total_tokens: int, budget: int,
                              force_keep: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -229,36 +222,3 @@ class H2OCache(BaseCompressCache):
                 keep_mask[hh_candidates[top_offsets]] = True
 
         return torch.nonzero(keep_mask, as_tuple=False).flatten().sort().values
-
-    def _prune_existing_cache(self, layer_idx: int, keep_indices: torch.Tensor):
-        # === 适配 Transformers 5.x ===
-        if hasattr(self, "layers"):
-            if layer_idx >= len(self.layers):
-                return
-
-            layer = self.layers[layer_idx]
-            k_cache = layer.keys
-            v_cache = layer.values
-
-            if k_cache is None or v_cache is None or k_cache.numel() == 0:
-                return
-
-            keep_indices = keep_indices.to(device=k_cache.device, dtype=torch.long)
-            # 在新架构下，直接替换 DynamicLayer 的内部属性
-            self.layers[layer_idx].keys = k_cache.index_select(-2, keep_indices)
-            self.layers[layer_idx].values = v_cache.index_select(-2, keep_indices)
-
-        # === 适配 Transformers 4.x (兼容旧版逻辑) ===
-        elif hasattr(self, "key_cache"):
-            if layer_idx >= len(self.key_cache):
-                return
-
-            k_cache = self.key_cache[layer_idx]
-            v_cache = self.value_cache[layer_idx]
-
-            if k_cache is None or v_cache is None or k_cache.numel() == 0:
-                return
-
-            keep_indices = keep_indices.to(device=k_cache.device, dtype=torch.long)
-            self.key_cache[layer_idx] = k_cache.index_select(-2, keep_indices)
-            self.value_cache[layer_idx] = v_cache.index_select(-2, keep_indices)

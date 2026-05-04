@@ -242,16 +242,3 @@ class EchoKVCache(BaseCompressCache):
             return key_states
 
         return torch.cat([existing_keys, key_states], dim=-2)
-
-    def _prune_existing_cache(self, layer_idx: int, keep_indices: torch.Tensor):
-        if layer_idx >= len(self.key_cache):
-            return
-
-        key_cache = self.key_cache[layer_idx]
-        value_cache = self.value_cache[layer_idx]
-        if key_cache is None or value_cache is None:
-            return
-
-        keep_indices = keep_indices.to(device=key_cache.device, dtype=torch.long)
-        self.key_cache[layer_idx] = key_cache.index_select(-2, keep_indices)
-        self.value_cache[layer_idx] = value_cache.index_select(-2, keep_indices)

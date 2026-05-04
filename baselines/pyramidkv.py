@@ -229,16 +229,3 @@ class PyramidKVCache(BaseCompressCache):
         if mean_scale <= 0:
             return self.compression_ratio
         return min(1.0, max(0.0, self.compression_ratio * scale / mean_scale))
-
-    def _prune_existing_cache(self, layer_idx: int, keep_indices: torch.Tensor):
-        if layer_idx >= len(self.key_cache):
-            return
-
-        key_cache = self.key_cache[layer_idx]
-        value_cache = self.value_cache[layer_idx]
-        if key_cache is None or value_cache is None:
-            return
-
-        keep_indices = keep_indices.to(device=key_cache.device, dtype=torch.long)
-        self.key_cache[layer_idx] = key_cache.index_select(-2, keep_indices)
-        self.value_cache[layer_idx] = value_cache.index_select(-2, keep_indices)
