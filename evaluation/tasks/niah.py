@@ -49,12 +49,17 @@ class NIAHEvaluator(BaseEvaluator):
                 prompt = f"Context:\n{context_with_needle}\n\nQuestion: {question}\nAnswer:"
                 inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
+                custom_cache = self.model_wrapper._setup_cache_and_hooks()
+
                 with torch.no_grad():
                     output_ids = model.generate(
                         inputs.input_ids,
                         max_new_tokens=50,
                         do_sample=False,
-                        pad_token_id=tokenizer.eos_token_id
+                        pad_token_id=tokenizer.eos_token_id,
+                        past_key_values=custom_cache,
+                        output_attentions=True,
+                        use_cache=True
                     )
 
                 generated_tokens = output_ids[0][inputs.input_ids.shape[1]:]

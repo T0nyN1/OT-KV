@@ -58,13 +58,27 @@ class LongBenchEvaluator(BaseEvaluator):
 
                 input_tensor = torch.tensor([input_ids]).to(model.device)
 
-                with torch.no_grad():
-                    output_ids = model.generate(
-                        input_tensor,
-                        max_new_tokens=64,
-                        do_sample=False,
-                        pad_token_id=tokenizer.eos_token_id
-                    )
+                # ==================================================
+                # [核心适配] 初始化自定义 Cache
+                # ==================================================
+                custom_cache = self.model_wrapper._setup_cache_and_hooks()
+
+                try:
+                    with torch.no_grad():
+                        output_ids = model.generate(
+                            input_tensor,
+                            max_new_tokens=64,
+                            do_sample=False,
+                            pad_token_id=tokenizer.eos_token_id,
+                            past_key_values=custom_cache,  # 传入缓存策略
+                            output_attentions=True,        # 开启 Attention 抓取
+                            use_cache=True
+                        )
+                finally:
+                    # [核心适配] 清理 Hook
+                    for h in getattr(self.model_wrapper, '_hooks', []):
+                        h.remove()
+                    self.model_wrapper._hooks.clear()
 
                 response = tokenizer.decode(output_ids[0][input_tensor.shape[1]:],
                                             skip_special_tokens=True).strip().lower()

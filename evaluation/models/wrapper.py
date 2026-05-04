@@ -108,18 +108,6 @@ class EvaluatorHFLM(HFLM):
 
                 prefix_ids = torch.tensor([token_ids[:split_idx]], device=device)
                 target_ids = torch.tensor([token_ids[split_idx:]], device=device)
-                
-                decode_seq_len = target_ids.shape[1]
-
-                # ==========================================
-                # [新增] 宏观文档级别监控
-                # ==========================================
-                print(f"\n" + "=" * 55)
-                print(f"[Doc Monitor] Processing New Document")
-                print(f"[Doc Monitor] Total Tokens   : {len(token_ids)}")
-                print(f"[Doc Monitor] Prefill Tokens : {prefix_ids.shape[1]}")
-                print(f"[Doc Monitor] Decode Steps   : {decode_seq_len}")
-                print("=" * 55)
 
                 past_key_values = self._setup_cache_and_hooks()
 

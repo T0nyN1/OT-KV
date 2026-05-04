@@ -79,8 +79,8 @@ def run_framework_on_modal(
 def run(
         # 基础配置
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        method: str = "h2o",
-        task: str = "wikitext",
+        method: str = "baseline",
+        task: str = "kv_recovery",
         prefill_fraction: float = 0.1,
         max_length: int = 4096,
         limit: int = 2,
@@ -88,11 +88,6 @@ def run(
         recent_window: int = 256,
         sink_size: int = 4,
 ):
-    """
-    你可以直接在本地命令行通过 flags 覆盖这些默认参数。
-    """
-
-    # 将命令行参数打包为 kwargs 字典
     kwargs = {
         "compression_ratio": compression_ratio,
         "recent_window": recent_window,

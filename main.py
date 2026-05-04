@@ -94,7 +94,7 @@ def run():
                         choices=["wikitext", "niah", "longbench", "ruler"],
                         help="Evaluation task name registered in TASK_REGISTRY")
     parser.add_argument("--method", type=str, default="baseline",
-                        choices=["baseline", "otkv", "h2o", "streamingllm", "snapkv", "pyramidkv"],
+                        choices=["baseline", "otkv", "h2o", "streamingllm", "snapkv", "pyramidkv", "echokv"],
                         help="KV Cache compression method")
 
     # 压缩相关参数
