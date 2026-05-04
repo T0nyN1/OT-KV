@@ -135,6 +135,9 @@ class StreamingLLMCache(BaseCompressCache):
         return torch.nonzero(keep_mask, as_tuple=False).flatten().sort().values
 
     def _prune_existing_cache(self, layer_idx: int, keep_indices: torch.Tensor):
+        key_cache = getattr(self, "key_cache", [])
+        value_cache = getattr(self, "value_cache", [])
+        
         if layer_idx >= len(self.key_cache):
             return
 

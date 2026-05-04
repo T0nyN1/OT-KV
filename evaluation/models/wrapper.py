@@ -6,6 +6,24 @@ from tqdm import tqdm
 from transformers.cache_utils import DynamicCache
 
 
+def _get_attention_pre_hook():
+    """
+    [新增] 在进入 self_attn 之前拦截并处理 kwargs
+    消除 Decode 阶段由于 KV Cache 压缩导致的 attention_mask 形状不匹配问题。
+    """
+
+    def pre_hook(module, args, kwargs):
+        hidden_states = args[0] if len(args) > 0 else kwargs.get("hidden_states")
+
+        if hidden_states is not None and hidden_states.shape[1] == 1:
+            if "attention_mask" in kwargs:
+                kwargs["attention_mask"] = None
+
+        return args, kwargs
+
+    return pre_hook
+
+
 def _get_attention_hook(cache_obj, layer_idx):
     def hook(module, inputs, outputs):
         if isinstance(outputs, tuple) and len(outputs) > 1:
@@ -81,6 +99,11 @@ class EvaluatorHFLM(HFLM):
             )
             self._hooks.append(hook_handle)
 
+            pre_hook_handle = layer.self_attn.register_forward_pre_hook(
+                _get_attention_pre_hook(), with_kwargs=True
+            )
+            self._hooks.append(pre_hook_handle)
+
         return cache_instance
 
     def loglikelihood_rolling(self, requests, disable_tqdm=False):
@@ -116,6 +139,9 @@ class EvaluatorHFLM(HFLM):
 
                 past_key_values = self._setup_cache_and_hooks()
 
+                # --- [监控] Prefill 阶段 ---
+                q_len_prefill = prefix_ids.shape[1]
+
                 # 1. 执行 Prefill
                 # 在 forward 过程中，HF 模型会自动调用 past_key_values.update(...)
                 outputs = self._model(
@@ -126,6 +152,11 @@ class EvaluatorHFLM(HFLM):
                     return_dict=True
                 )
                 past_key_values.on_prefill_end()
+
+                # 获取压缩后的长度 (以第0层为例)
+                post_prefill_len = self._get_phys_length(past_key_values, 0)
+                print(
+                    f"\n[KV Monitor] Stage: Prefill | Input Tokens: {q_len_prefill:<4} | Cache After: {post_prefill_len:<5}")
 
                 last_logit = outputs.logits[:, -1:, :]
                 total_logprob = 0.0
@@ -143,6 +174,9 @@ class EvaluatorHFLM(HFLM):
                     if i == decode_seq_len - 1:
                         break
 
+                    # --- [监控] Decode 阶段 ---
+                    pre_decode_len = self._get_phys_length(past_key_values, 0)
+
                     # 单步执行：输入 1 个 token，Cache 会自动进行驱逐/压缩
                     outputs = self._model(
                         input_ids=target_token,
@@ -152,8 +186,17 @@ class EvaluatorHFLM(HFLM):
                         output_attentions=True,
                         return_dict=True
                     )
+                    post_decode_len = self._get_phys_length(past_key_values, 0)
+                    last_logit = outputs.logits
+                    # 动态刷新显示长度变化
+                    log_str = (f"[KV Monitor] Stage: Decode  | Step: {i:<4} | "
+                               f"Cache Before: {pre_decode_len:<5} | "
+                               f"Cache After: {post_decode_len:<5}")
+                    print(f"\r{log_str}\033[K", end="", flush=True)
+
                     last_logit = outputs.logits
 
+                print()
                 results.append(total_logprob)
 
         # 评测结束后清理 Hook 句柄
@@ -161,3 +204,18 @@ class EvaluatorHFLM(HFLM):
             h.remove()
 
         return results
+
+    def _get_phys_length(self, cache_obj, layer_idx=0):
+        if hasattr(cache_obj, "layers"):
+            if layer_idx < len(cache_obj.layers):
+                k_tensor = cache_obj.layers[layer_idx].keys
+                if k_tensor is not None and k_tensor.numel() > 0:
+                    return k_tensor.shape[-2]
+
+        elif hasattr(cache_obj, "key_cache"):
+            k_cache = cache_obj.key_cache
+            if layer_idx < len(k_cache) and k_cache[layer_idx] is not None:
+                if k_cache[layer_idx].numel() > 0:
+                    return k_cache[layer_idx].shape[-2]
+
+        return cache_obj.get_seq_length(layer_idx)

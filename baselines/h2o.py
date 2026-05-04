@@ -231,14 +231,34 @@ class H2OCache(BaseCompressCache):
         return torch.nonzero(keep_mask, as_tuple=False).flatten().sort().values
 
     def _prune_existing_cache(self, layer_idx: int, keep_indices: torch.Tensor):
-        if layer_idx >= len(self.key_cache):
-            return
+        # === 适配 Transformers 5.x ===
+        if hasattr(self, "layers"):
+            if layer_idx >= len(self.layers):
+                return
 
-        key_cache = self.key_cache[layer_idx]
-        value_cache = self.value_cache[layer_idx]
-        if key_cache is None or value_cache is None:
-            return
+            layer = self.layers[layer_idx]
+            k_cache = layer.keys
+            v_cache = layer.values
 
-        keep_indices = keep_indices.to(device=key_cache.device, dtype=torch.long)
-        self.key_cache[layer_idx] = key_cache.index_select(-2, keep_indices)
-        self.value_cache[layer_idx] = value_cache.index_select(-2, keep_indices)
+            if k_cache is None or v_cache is None or k_cache.numel() == 0:
+                return
+
+            keep_indices = keep_indices.to(device=k_cache.device, dtype=torch.long)
+            # 在新架构下，直接替换 DynamicLayer 的内部属性
+            self.layers[layer_idx].keys = k_cache.index_select(-2, keep_indices)
+            self.layers[layer_idx].values = v_cache.index_select(-2, keep_indices)
+
+        # === 适配 Transformers 4.x (兼容旧版逻辑) ===
+        elif hasattr(self, "key_cache"):
+            if layer_idx >= len(self.key_cache):
+                return
+
+            k_cache = self.key_cache[layer_idx]
+            v_cache = self.value_cache[layer_idx]
+
+            if k_cache is None or v_cache is None or k_cache.numel() == 0:
+                return
+
+            keep_indices = keep_indices.to(device=k_cache.device, dtype=torch.long)
+            self.key_cache[layer_idx] = k_cache.index_select(-2, keep_indices)
+            self.value_cache[layer_idx] = v_cache.index_select(-2, keep_indices)
