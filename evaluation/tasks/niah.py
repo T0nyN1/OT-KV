@@ -39,6 +39,23 @@ class NIAHEvaluator(BaseEvaluator):
 
         for length in context_lengths:
             for depth in depths:
+                # ========================================================
+                # 🚦 [安检门] 评测前显存基线监控
+                # ========================================================
+                torch.cuda.synchronize()  # 确保之前的 GPU 异步操作全执行完
+                mem_allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+                mem_reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+
+                print(f"\n" + "=" * 50)
+                print(f"🚀 [New Task] Length: {length:<4} | Depth: {depth:.2f}")
+                print(f"📊 [VRAM Base] Allocated: {mem_allocated:.2f} GB | Reserved: {mem_reserved:.2f} GB")
+
+                # 设定一个报警阈值 (Llama 3 8B 裸模型大概是 15-16 GB)
+                # 如果初始显存超过 18 GB，绝对说明有上一轮的垃圾没清干净！
+                if mem_allocated > 18.0:
+                    print(f"⚠️ [WARNING] 发现显存泄露嫌疑！基线占用异常偏高！")
+                print("=" * 50)
+                # ========================================================
                 context_tokens = full_text_tokens[:length]
                 insert_idx = int(depth * len(context_tokens))
 
@@ -70,7 +87,7 @@ class NIAHEvaluator(BaseEvaluator):
 
                 score = 1 if "dolores park" in response or "sandwich" in response else 0
                 results_list.append({"length": length, "depth": depth, "score": score})
-                print(f"[Length: {length:<4} | Depth: {depth:.2f}] Score: {score}")
+                print(f"\n[Length: {length:<4} | Depth: {depth:.2f}] Score: {score}")
 
         accuracy = sum(r['score'] for r in results_list) / len(results_list) if results_list else 0
         return {"needlehaystack": {"overall_accuracy": accuracy}}
