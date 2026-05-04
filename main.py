@@ -32,11 +32,16 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         }
 
     elif method == "otkv":
-        # 预留给你的 OT-KV 实现
-        # from baselines.otkv_cache import OTKVCache
-        # cache_class = OTKVCache
-        # cache_kwargs = {"compression_ratio": kwargs.get('compression_ratio', 0.5)}
-        pass
+        from core.otkv import OTKVCache
+        cache_class = OTKVCache
+        cache_kwargs = {
+            "compression_ratio": kwargs.get('compression_ratio', 0.5),
+            "recent_window": kwargs.get('recent_window', 256),
+            "sink_size": kwargs.get('sink_size', 4),
+            "gamma": kwargs.get('otkv_gamma', 1.0),
+            "epsilon": kwargs.get('otkv_epsilon', 0.01),
+            "transport_mode": kwargs.get('otkv_transport_mode', "soft"),
+        }
 
     elif method == "streamingllm":
         from baselines.streamingllm import StreamingLLMCache
@@ -138,6 +143,12 @@ def run():
                         help="Number of initial/sink tokens to retain")
     parser.add_argument("--observation_window", type=int, default=None,
                         help="Query window used to score prompt tokens for SnapKV/PyramidKV")
+    parser.add_argument("--otkv_gamma", type=float, default=1.0,
+                        help="OTKV anchor weight exponent")
+    parser.add_argument("--otkv_epsilon", type=float, default=0.01,
+                        help="Sinkhorn entropy regularization for OTKV soft transport")
+    parser.add_argument("--otkv_transport_mode", type=str, default="soft", choices=["soft", "hard"],
+                        help="OTKV value merge transport mode")
 
     # 评测流程控制
     parser.add_argument("--prefill_fraction", type=float, default=0.1,

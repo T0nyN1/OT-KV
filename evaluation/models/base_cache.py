@@ -68,6 +68,57 @@ class BaseCompressCache(DynamicCache):
         else:
             raise ValueError(f"Unsupported budget_mode: '{mode}'. Expected 'fixed' or 'expandable'.")
 
+    def _get_existing_cache(self, layer_idx: int):
+        # === 适配 Transformers 5.x ===
+        if hasattr(self, "layers"):
+            if layer_idx >= len(self.layers):
+                return None, None
+
+            layer = self.layers[layer_idx]
+            return layer.keys, layer.values
+
+        # === 适配 Transformers 4.x (兼容旧版逻辑) ===
+        if hasattr(self, "key_cache"):
+            if layer_idx >= len(self.key_cache):
+                return None, None
+
+            return self.key_cache[layer_idx], self.value_cache[layer_idx]
+
+        return None, None
+
+    def _replace_existing_cache(self, layer_idx: int, key_states: torch.Tensor, value_states: torch.Tensor):
+        if key_states is None or value_states is None:
+            return
+
+        # === 适配 Transformers 5.x ===
+        if hasattr(self, "layers"):
+            if layer_idx >= len(self.layers):
+                return
+
+            layer = self.layers[layer_idx]
+            layer.keys = key_states
+            layer.values = value_states
+            self._set_layer_length(layer, key_states.shape[-2])
+            return
+
+        # === 适配 Transformers 4.x (兼容旧版逻辑) ===
+        if hasattr(self, "key_cache"):
+            if layer_idx >= len(self.key_cache):
+                return
+
+            self.key_cache[layer_idx] = key_states
+            self.value_cache[layer_idx] = value_states
+
+    @staticmethod
+    def _set_layer_length(layer, seq_len: int):
+        if hasattr(layer, "cumulative_length"):
+            if isinstance(layer.cumulative_length, torch.Tensor):
+                layer.cumulative_length.fill_(seq_len)
+            else:
+                layer.cumulative_length = seq_len
+        if hasattr(layer, "cumulative_length_int"):
+            layer.cumulative_length_int = seq_len
+
     def _prune_existing_cache(self, layer_idx: int, keep_indices: torch.Tensor):
         # === 适配 Transformers 5.x ===
         if hasattr(self, "layers"):
