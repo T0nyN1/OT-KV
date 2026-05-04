@@ -29,7 +29,7 @@ class RulerEvaluator(BaseEvaluator):
         model = self.model_wrapper._model
 
         # RULER 数据集目录约定
-        data_dir = self.args.get("ruler_data_dir", "datasets/ruler")
+        data_dir = self.args.get("ruler_data_dir", "./datasets/ruler")
 
         if not os.path.exists(data_dir):
             print(f"\n[!] 错误: RULER 数据目录未找到: {data_dir}")
