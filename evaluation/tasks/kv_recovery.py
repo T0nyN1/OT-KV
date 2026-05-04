@@ -61,11 +61,17 @@ class KVRecoveryEvaluator(BaseEvaluator):
         # ==================================================
         layer_idx = -1  # 取最后一层
 
-        # 因为新架构完全继承自 DynamicCache，提取变得非常简单统一
         def get_v_matrix(cache, idx):
+            # Transformers 4.x: DynamicCache has value_cache as list of tensors
             if hasattr(cache, "value_cache"):
                 return cache.value_cache[idx]
-            raise TypeError("Expected a subclass of DynamicCache")
+            # Transformers 5.x: DynamicCache has layers list with .values per layer
+            if hasattr(cache, "layers"):
+                return cache.layers[idx].values
+            # Legacy tuple-of-tuples format: ((k0, v0), (k1, v1), ...)
+            if isinstance(cache, (tuple, list)):
+                return cache[idx][1]
+            raise TypeError(f"Unsupported cache type: {type(cache)}")
 
         # 展平矩阵
         v_dense = get_v_matrix(cache_dense, layer_idx).cpu().float().numpy().flatten()
