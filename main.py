@@ -30,6 +30,7 @@ def get_cache_config(method: str, kwargs: dict):
                 "gamma": kwargs.get('otkv_gamma', 1.0),
                 "epsilon": kwargs.get('otkv_epsilon', 0.01),
                 "transport_mode": kwargs.get('otkv_transport_mode', "soft"),
+                "compress_interval": kwargs.get('otkv_compress_interval', 32),
             }
 
         case "streamingllm":
@@ -158,6 +159,8 @@ def run():
                         help="Size of the local/recent window for algorithms like H2O or StreamingLLM")
     parser.add_argument("--sink_size", default=4,
                         help="Number of initial/sink tokens to retain")
+    parser.add_argument("--otkv_compress_interval", type=int, default=32,
+                        help="Run OTKV decode-time OT compression every N decode steps")
     parser.add_argument("--prefill_fraction", type=float, default=0.1,
                         help="Fraction of document used for the initial prefill stage in PPL testing")
     parser.add_argument("--max_length", type=int, default=4096,

@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -250,28 +250,67 @@ class OTKVCache(BaseCompressCache):
     token is appended by DynamicCache.update.
     """
 
-    def __init__(self, compression_ratio: float = DEFAULT_COMPRESSION_RATIO,
-                 recent_window: int = 256, sink_size: int = 4,
+    def __init__(self, compression_size: Union[int, float] = DEFAULT_COMPRESSION_RATIO,
+                 mode: str = "prefill",
+                 sink_size: Union[int, float] = 4,
+                 recent_size: Union[int, float] = 0.1,
                  gamma: float = 1.0, epsilon: float = 0.01,
-                 transport_mode: str = "soft", **kwargs):
-        if not 0 < compression_ratio <= 1:
-            raise ValueError("compression_ratio must be in (0, 1].")
-        if recent_window < 0:
-            raise ValueError("recent_window must be non-negative.")
-        if sink_size < 0:
-            raise ValueError("sink_size must be non-negative.")
+                 transport_mode: str = "soft",
+                 compress_interval: int = 1,
+                 compression_ratio: Union[int, float, None] = None,
+                 recent_window: Union[int, float, None] = None,
+                 **kwargs):
+        if compression_ratio is not None:
+            compression_size = compression_ratio
+        if recent_window is not None:
+            recent_size = recent_window
+
+        if isinstance(compression_size, float):
+            if not 0 < compression_size <= 1:
+                raise ValueError("compression_size ratio must be in (0, 1].")
+        elif isinstance(compression_size, int):
+            if compression_size <= 0:
+                raise ValueError("compression_size token count must be positive.")
+        else:
+            raise TypeError("compression_size must be an int token count or float ratio.")
+        if isinstance(sink_size, float):
+            if not 0 <= sink_size <= 1:
+                raise ValueError("sink_size ratio must be in [0, 1].")
+        elif isinstance(sink_size, int):
+            if sink_size < 0:
+                raise ValueError("sink_size token count must be non-negative.")
+        else:
+            raise TypeError("sink_size must be an int token count or float ratio.")
+        if isinstance(recent_size, float):
+            if not 0 <= recent_size <= 1:
+                raise ValueError("recent_size ratio must be in [0, 1].")
+        elif isinstance(recent_size, int):
+            if recent_size < 0:
+                raise ValueError("recent_size token count must be non-negative.")
+        else:
+            raise TypeError("recent_size must be an int token count or float ratio.")
         if gamma < 0:
             raise ValueError("gamma must be non-negative.")
         if epsilon <= 0:
             raise ValueError("epsilon must be positive.")
+        if int(compress_interval) <= 0:
+            raise ValueError("compress_interval must be a positive integer.")
         _validate_transport_mode(transport_mode)
 
-        super().__init__(compression_ratio=compression_ratio, **kwargs)
-        self.recent_window = int(recent_window)
-        self.sink_size = int(sink_size)
+        super().__init__(
+            compression_size=compression_size,
+            mode=mode,
+            sink_size=sink_size,
+            recent_size=recent_size,
+            **kwargs,
+        )
+        self.compression_ratio = compression_size
+        self.recent_window = recent_size
         self.gamma = float(gamma)
         self.epsilon = float(epsilon)
         self.transport_mode = transport_mode
+        self.compress_interval = int(compress_interval)
+        self.decode_steps: Dict[int, int] = {}
         self.total_seen_tokens: Dict[int, int] = {}
 
     def on_prefill(self, key_states: torch.Tensor, value_states: torch.Tensor,
@@ -281,45 +320,74 @@ class OTKVCache(BaseCompressCache):
         return key_states, value_states
 
     def on_prefill_end(self):
-        for layer_idx in self._known_layer_indices():
+        if getattr(self, "_prefill_finalized", False):
+            return
+
+        layer_indices = self._known_layer_indices()
+        if not layer_indices:
+            return
+
+        prefill_total = max(self._total_seen_for_layer(layer_idx) for layer_idx in layer_indices)
+        self._update_budget(prefill_total, is_prefill_end=True)
+        self._clamp_budget_layout()
+
+        for layer_idx in layer_indices:
             self.current_attention_scores.pop(layer_idx, None)
-            total_tokens = self._total_seen_for_layer(layer_idx)
-            self._compress_existing_layer(layer_idx, total_tokens)
+            self._compress_existing_layer(layer_idx, prefill_total)
         self.current_attention_scores.clear()
+        self._prefill_finalized = True
 
     def on_decode_step(self, key_states: torch.Tensor, value_states: torch.Tensor,
                        layer_idx: int, cache_kwargs: dict):
         self.current_attention_scores.pop(layer_idx, None)
         prev_total = self._total_seen_for_layer(layer_idx)
-        self._compress_existing_layer(layer_idx, prev_total)
+        self._update_budget(prev_total, is_prefill_end=False)
+
+        decode_step = self.decode_steps.get(layer_idx, 0)
+        new_tokens = key_states.shape[-2]
+        if decode_step % self.compress_interval == 0:
+            self._compress_existing_layer(
+                layer_idx,
+                prev_total,
+                reserve_tokens=max(new_tokens, self.compress_interval),
+            )
+
+        self.decode_steps[layer_idx] = decode_step + new_tokens
         self.total_seen_tokens[layer_idx] = prev_total + key_states.shape[-2]
         return key_states, value_states
 
-    def _compress_existing_layer(self, layer_idx: int, total_tokens: int):
+    def _compress_existing_layer(self, layer_idx: int, total_tokens: int,
+                                 reserve_tokens: int = 0):
         key_cache, value_cache = self._get_existing_cache(layer_idx)
         if key_cache is None or value_cache is None:
             return
         if key_cache.numel() == 0 or value_cache.numel() == 0:
             return
 
-        middle_budget = middle_budget_from_ratio(
-            total_tokens,
-            compression_ratio=self.compression_ratio,
-            sink_size=self.sink_size,
-            recent_size=self.recent_window,
+        reserve_tokens = max(0, int(reserve_tokens))
+        middle_budget = min(
+            key_cache.shape[-2],
+            max(0, int(self.get_middle_budget(layer_idx, total_tokens)) - reserve_tokens),
         )
         new_k, new_v = otkv_segmented_compress_to_budget(
             key_cache,
             value_cache,
             middle_budget=middle_budget,
             sink_size=self.sink_size,
-            recent_size=self.recent_window,
+            recent_size=self.recent_size,
             gamma=self.gamma,
             epsilon=self.epsilon,
             transport_mode=self.transport_mode,
         )
         if new_k is not key_cache or new_v is not value_cache:
             self._replace_existing_cache(layer_idx, new_k, new_v)
+
+    def _clamp_budget_layout(self):
+        self.budget = max(0, int(self.budget))
+        self.sink_size = min(max(0, int(self.sink_size)), self.budget)
+        remaining = max(0, self.budget - self.sink_size)
+        self.recent_size = min(max(0, int(self.recent_size)), remaining)
+        self.middle_budget = max(0, self.budget - self.sink_size - self.recent_size)
 
     def _known_layer_indices(self):
         layer_indices = set(self.total_seen_tokens.keys())

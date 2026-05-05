@@ -22,6 +22,8 @@ class NIAHEvaluator(BaseEvaluator):
         max_length = self.model_wrapper.max_length
         context_intervals = self.args.get('context_intervals', 5)
         depth_intervals = self.args.get('depth_intervals', 5)
+        limit = self.args.get('limit', None)
+        limit = None if limit is None or int(limit) <= 0 else int(limit)
 
         needle = "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day."
         question = "What is the best thing to do in San Francisco?"
@@ -39,6 +41,10 @@ class NIAHEvaluator(BaseEvaluator):
 
         for length in context_lengths:
             for depth in depths:
+                if limit is not None and len(results_list) >= limit:
+                    accuracy = sum(r['score'] for r in results_list) / len(results_list) if results_list else 0
+                    return {"needlehaystack": {"overall_accuracy": accuracy}}
+
                 # ========================================================
                 # 🚦 [安检门] 评测前显存基线监控
                 # ========================================================
