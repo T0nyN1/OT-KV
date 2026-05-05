@@ -79,14 +79,14 @@ def run_framework_on_modal(
 def run(
         # 基础配置
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        method: str = "h2o",
+        method: str = "baseline",
         task: str = "wikitext",
-        prefill_fraction: float = 0.2,
+        prefill_fraction: float = 0.5,
         max_length: int = 4096,
         limit: int = 2,
         compression_size = 0.5,
-        recent_size = 0.2,
-        sink_size = 0.05,
+        recent_size = 0.4,
+        sink_size = 0.1,
 ):
     kwargs = {
         "compression_size": compression_size,
