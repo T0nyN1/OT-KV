@@ -30,8 +30,9 @@ def _get_attention_hook(cache_obj, layer_idx):
             attn_weights = outputs[1]
             if attn_weights is not None:
                 with torch.no_grad():
-                    # 1. 求和并转移到 CPU，彻底离开显存
-                    accumulated_score = attn_weights.sum(dim=-2).detach().cpu()
+                    # 1. 让具体的 Cache 策略决定如何降维 attention 矩阵
+                    #    （SnapKV 会在此处先做 observation-window 切片，再求和）。
+                    accumulated_score = cache_obj.reduce_attention(attn_weights)
                     cache_obj.current_attention_scores[layer_idx] = accumulated_score
 
                 # 2. 【核心！显存物理粉碎】
@@ -89,16 +90,21 @@ class EvaluatorHFLM(HFLM):
         # 2. 实例化自定义压缩 Cache (如 H2OCache)
         cache_instance = self.cache_class(**self.cache_kwargs)
 
-        # 3. 遍历模型所有层，在 Attention 模块上挂载 Hook
+        # 3. 仅当策略需要 attention 分数时，才挂载 attention hook
+        #    （StreamingLLM / EchoKV / Baseline 等无需，省下大量显存与拷贝开销）
+        needs_attn = getattr(cache_instance, "requires_attention", True)
+
+        # 4. 遍历模型所有层，挂载必要的 Hook
         # 这里的路径 'model.layers' 适用于 Llama/Mistral，其他模型可能需微调
         layers = self._model.model.layers
         for layer_idx, layer in enumerate(layers):
-            # 找到每一层的 self_attn 模块
-            hook_handle = layer.self_attn.register_forward_hook(
-                _get_attention_hook(cache_instance, layer_idx)
-            )
-            self._hooks.append(hook_handle)
+            if needs_attn:
+                hook_handle = layer.self_attn.register_forward_hook(
+                    _get_attention_hook(cache_instance, layer_idx)
+                )
+                self._hooks.append(hook_handle)
 
+            # pre-hook 与 attention 是否需要无关，仅修复 decode 阶段 mask 形状问题
             pre_hook_handle = layer.self_attn.register_forward_pre_hook(
                 _get_attention_pre_hook(), with_kwargs=True
             )
@@ -145,6 +151,7 @@ class EvaluatorHFLM(HFLM):
                 print("=" * 55)
 
                 past_key_values = self._setup_cache_and_hooks()
+                needs_attn = getattr(past_key_values, "requires_attention", False)
 
                 # --- [监控] Prefill 阶段 ---
                 q_len_prefill = prefix_ids.shape[1]
@@ -155,7 +162,7 @@ class EvaluatorHFLM(HFLM):
                     input_ids=prefix_ids,
                     use_cache=True,
                     past_key_values=past_key_values,
-                    output_attentions=True,  # 确保输出以供 Hook 抓取
+                    output_attentions=needs_attn,  # 仅在策略需要时输出 attention，节省显存
                     return_dict=True
                 )
                 past_key_values.on_prefill_end()
@@ -195,7 +202,7 @@ class EvaluatorHFLM(HFLM):
                         past_key_values=past_key_values,
                         use_cache=True,
                         position_ids=torch.tensor([[split_idx + i]], device=device),
-                        output_attentions=True,
+                        output_attentions=needs_attn,
                         return_dict=True
                     )
                     post_decode_len = self._get_phys_length(past_key_values, 0)

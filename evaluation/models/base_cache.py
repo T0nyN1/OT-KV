@@ -12,6 +12,11 @@ class BaseCompressCache(DynamicCache):
     支持整数（绝对数量）或小数（比例）来配置压缩率、Sink 大小和 Recent 大小。
     """
 
+    # 子类可重写：表明该策略是否依赖 attention 分数。
+    # 若为 False，wrapper 会跳过 attention hook 并关闭 output_attentions，
+    # 从而显著节省显存与计算开销。
+    requires_attention: bool = True
+
     def __init__(self,
                  compression_size: Union[int, float],
                  mode: str = "prefill",
@@ -61,6 +66,19 @@ class BaseCompressCache(DynamicCache):
 
     def on_prefill_end(self):
         raise NotImplementedError
+
+    # ==========================================
+    # Attention 降维钩子 (供 wrapper 的 hook 调用)
+    # ==========================================
+
+    def reduce_attention(self, attn_weights: torch.Tensor) -> torch.Tensor:
+        """
+        将一层的原始 attention 权重 [B, H, Q, K] 降维并返回保存到
+        self.current_attention_scores[layer_idx] 的张量。
+        默认实现：在 query 维度上求和，得到每个 key token 的累积分数。
+        子类（如 SnapKV）可重写以仅使用最后若干个 query 的分数（observation window）。
+        """
+        return attn_weights.sum(dim=-2).detach()
 
     # ==========================================
     # Budget 管理模块

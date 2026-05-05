@@ -9,6 +9,8 @@ class StreamingLLMCache(BaseCompressCache):
     无视 Attention 分数，直接清空 Middle 区域，仅保留基类保护的 Sink 和 Recent。
     """
 
+    requires_attention = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.active_layers = set()  # 用于 on_prefill_end 遍历

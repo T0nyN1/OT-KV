@@ -21,14 +21,24 @@ class PyramidKVCache(SnapKVCache):
 
         num_layers = max(1, self.num_layers)
         if num_layers == 1:
-            effective_ratio = self.compression_size
+            scale = 1.0
         else:
             depth = layer_idx / float(num_layers - 1)
             scale = self.pyramid_low_scale + depth * (self.pyramid_high_scale - self.pyramid_low_scale)
-            mean_scale = 0.5 * (self.pyramid_low_scale + self.pyramid_high_scale)
-            # 根据基准的 compression_size 调节当前层比例
-            effective_ratio = min(1.0, max(0.0, self.compression_size * scale / mean_scale))
 
-        # 计算层绝对 budget，并扣除固定的 sink 和 recent 得到 middle 的配额
-        layer_budget = math.floor(total_tokens * effective_ratio)
+        mean_scale = 0.5 * (self.pyramid_low_scale + self.pyramid_high_scale)
+        if mean_scale <= 0:
+            mean_scale = 1.0
+
+        # 同时支持整数（绝对预算）和浮点（比例）的 compression_size，
+        # 与 BaseCompressCache._update_budget 中的语义保持一致。
+        if isinstance(self.compression_size, int):
+            base_layer_budget = float(self.compression_size)
+        else:
+            base_layer_budget = float(total_tokens) * float(self.compression_size)
+
+        layer_budget = math.floor(base_layer_budget * scale / mean_scale)
+        # 不允许超过物理 token 数量
+        layer_budget = min(layer_budget, total_tokens)
+
         return max(0, layer_budget - self.sink_size - self.recent_size)

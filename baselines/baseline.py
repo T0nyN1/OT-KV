@@ -10,6 +10,8 @@ class BaselineCache(BaseCompressCache):
     这是模型完整保留上下文时的理论上限性能（PPL 最低）。
     """
 
+    requires_attention = False
+
     def __init__(self, **kwargs):
         # Baseline 不需要压缩，强行覆盖关键参数：
         # 1. 压缩比例设为 1.0 (100% 保留)

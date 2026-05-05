@@ -11,6 +11,8 @@ class EchoKVCache(BaseCompressCache):
     不使用注意力分数，仅在需要压缩时实时提取 Middle 区域的 Key 特征进行相似度聚类。
     """
 
+    requires_attention = False
+
     def __init__(self, max_representative_scan: Optional[int] = None, **kwargs):
         super().__init__(**kwargs)
         self.max_representative_scan = max_representative_scan
@@ -101,6 +103,13 @@ class EchoKVCache(BaseCompressCache):
 
     @staticmethod
     def _evenly_spaced_candidates(candidates: torch.Tensor, budget: int):
-        offsets = torch.linspace(0, candidates.numel() - 1, steps=budget, device=candidates.device).round().to(
-            dtype=torch.long)
+        n = candidates.numel()
+        if budget <= 0 or n == 0:
+            return candidates[:0]
+        if budget == 1:
+            # linspace(steps=1) 会返回 [0]，并不"均匀"；改取序列中点更合理
+            offsets = torch.tensor([n // 2], device=candidates.device, dtype=torch.long)
+        else:
+            offsets = torch.linspace(0, n - 1, steps=budget,
+                                     device=candidates.device).round().to(dtype=torch.long)
         return candidates.index_select(0, offsets).sort().values

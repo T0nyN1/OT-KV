@@ -10,10 +10,24 @@ class SnapKVCache(BaseCompressCache):
     通过累加 Observation Window 内的注意力分数来决定 Middle 区域的去留。
     """
 
+    requires_attention = True
+
     def __init__(self, observation_window: Optional[int] = None, **kwargs):
         super().__init__(**kwargs)
         self.observation_window = observation_window
         self.attention_scores = {}
+
+    def reduce_attention(self, attn_weights: torch.Tensor) -> torch.Tensor:
+        """
+        SnapKV 关键特性：仅使用最后 observation_window 个 query 的 attention
+        来评估 key 的重要性。在 hook 内提前切片，避免 query 维被全量求和后
+        observation window 失效。
+        """
+        scores = attn_weights.detach()
+        if self.observation_window is not None and self.observation_window > 0 \
+                and scores.dim() >= 2:
+            scores = scores[..., -self.observation_window:, :]
+        return scores.sum(dim=-2)
 
     def on_prefill(self, key_states: torch.Tensor, value_states: torch.Tensor,
                    layer_idx: int, cache_kwargs: dict):
@@ -101,9 +115,8 @@ class SnapKVCache(BaseCompressCache):
         self.attention_scores[layer_idx] = updated_scores
 
     def _attention_to_token_scores(self, attn_weights: torch.Tensor) -> torch.Tensor:
+        # observation-window 切片已在 reduce_attention 中完成，这里直接降到 1D
         scores = attn_weights.detach().float()
-        if self.observation_window is not None and self.observation_window > 0 and scores.dim() >= 4:
-            scores = scores[..., -self.observation_window:, :]
         if scores.dim() == 0: return scores.reshape(1)
         reduce_dims = tuple(range(scores.dim() - 1))
         if reduce_dims: scores = scores.sum(dim=reduce_dims)
