@@ -1,156 +1,163 @@
 # main.py
 import argparse
+import time
 
 from evaluation.models.wrapper import EvaluatorHFLM
 from evaluation.tasks.registry import get_evaluator
-from utils import set_device
+from utils import set_device, export_results
 
 
-def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
-    """
-    新架构下的主入口。
-    不再实例化 Policy 对象，而是配置 cache_class 和 cache_kwargs。
-    """
+def get_cache_config(method: str, kwargs: dict):
+    match method.lower():
+        case "baseline":
+            from baselines.baseline import BaselineCache
+            return BaselineCache, {}
 
-    # 1. 策略配置映射
-    # 根据 method 选择对应的 Cache 子类及其特有参数
-    cache_class = None
-    cache_kwargs = {}
+        case "h2o":
+            from baselines.h2o import H2OCache
+            return H2OCache, {
+                "compression_size": kwargs.get('compression_size', 0.5),
+                "recent_size": kwargs.get('recent_size', 0.1),
+                "sink_size": kwargs.get('sink_size', 4),
+            }
 
-    if method == "baseline":
-        from baselines.baseline import BaselineCache
-        cache_class = BaselineCache
-        cache_kwargs = {}
+        case "otkv":
+            from core.otkv import OTKVCache
+            return OTKVCache, {
+                "compression_size": kwargs.get('compression_size', 0.5),
+                "recent_size": kwargs.get('recent_size', 0.1),
+                "sink_size": kwargs.get('sink_size', 4),
+                "gamma": kwargs.get('otkv_gamma', 1.0),
+                "epsilon": kwargs.get('otkv_epsilon', 0.01),
+                "transport_mode": kwargs.get('otkv_transport_mode', "soft"),
+            }
 
-    elif method == "h2o":
-        from baselines.h2o import H2OCache
-        cache_class = H2OCache
-        cache_kwargs = {
-            "compression_size": kwargs.get('compression_size', 0.5),
-            "recent_size": kwargs.get('recent_size', 256),
-            "sink_size": kwargs.get('sink_size', 4),
-        }
+        case "streamingllm":
+            from baselines.streamingllm import StreamingLLMCache
+            return StreamingLLMCache, {
+                "compression_size": kwargs.get('compression_size', 1.0),
+                "recent_size": kwargs.get('recent_size', 0.1),
+                "sink_size": 4 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+            }
 
-    elif method == "otkv":
-        from core.otkv import OTKVCache
-        cache_class = OTKVCache
-        cache_kwargs = {
-            "compression_size": kwargs.get('compression_size', 0.5),
-            "recent_size": kwargs.get('recent_size', 256),
-            "sink_size": kwargs.get('sink_size', 4),
-            "gamma": kwargs.get('otkv_gamma', 1.0),
-            "epsilon": kwargs.get('otkv_epsilon', 0.01),
-            "transport_mode": kwargs.get('otkv_transport_mode', "soft"),
-        }
+        case "snapkv":
+            from baselines.snapkv import SnapKVCache
+            return SnapKVCache, {
+                "compression_size": kwargs.get('compression_size', 0.5),
+                "recent_size": kwargs.get('recent_size', 0.1),
+                "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+                "observation_window": kwargs.get('observation_window', None),
+            }
 
-    elif method == "streamingllm":
-        from baselines.streamingllm import StreamingLLMCache
-        cache_class = StreamingLLMCache
-        cache_kwargs = {
-            "compression_size": kwargs.get('compression_size', 1.0),
-            "recent_size": kwargs.get('recent_size', 256),
-            "sink_size": 4 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
-        }
+        case "pyramidkv":
+            from baselines.pyramidkv import PyramidKVCache
+            return PyramidKVCache, {
+                "compression_size": kwargs.get('compression_size', 0.5),
+                "recent_size": kwargs.get('recent_size', 0.1),
+                "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+                "observation_window": kwargs.get('observation_window', None),
+            }
 
-    elif method == "snapkv":
-        from baselines.snapkv import SnapKVCache
-        cache_class = SnapKVCache
-        cache_kwargs = {
-            "compression_size": kwargs.get('compression_size', 0.5),
-            "recent_size": kwargs.get('recent_size', 256),
-            "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
-            "observation_window": kwargs.get('observation_window', None),
-        }
+        case "echokv":
+            from baselines.echokv import EchoKVCache
+            return EchoKVCache, {
+                "compression_size": kwargs.get('compression_size', 0.5),
+                "recent_size": kwargs.get('recent_size', 0.1),
+                "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+            }
 
-    elif method == "pyramidkv":
-        from baselines.pyramidkv import PyramidKVCache
-        cache_class = PyramidKVCache
-        cache_kwargs = {
-            "compression_size": kwargs.get('compression_size', 0.5),
-            "recent_size": kwargs.get('recent_size', 256),
-            "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
-            "observation_window": kwargs.get('observation_window', None),
-        }
+        case _:
+            raise ValueError(f"Unknown method: {method}")
 
-    elif method == "echokv":
-        from baselines.echokv import EchoKVCache
-        cache_class = EchoKVCache
-        cache_kwargs = {
-            "compression_size": kwargs.get('compression_size', 0.5),
-            "recent_size": kwargs.get('recent_size', 256),
-            "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
-        }
 
-    else:
-        raise ValueError(f"Unknown method: {method}")
+def main(model_id, methods, tasks, **kwargs):
+    print(f"\n{'=' * 60}")
+    print(f"🚀 Starting Multi-Evaluation Pipeline")
+    print(f"Model  : {model_id}")
+    print(f"Tasks  : {', '.join(tasks)}")
+    print(f"Methods: {', '.join(methods)}")
+    print(f"{'=' * 60}\n")
 
-    # 2. 初始化封装后的模型 (EvaluatorHFLM)
-    # 我们将类本身和参数传进去，让模型在推理循环中动态创建 Cache 实例
-    print(f">>> [Init] Loading model: {model_id}")
-    print(f">>> [Init] Optimization Method: {method}")
-
+    print(f">>> [Init] Loading Large Language Model ONCE into VRAM...")
     model_wrapper = EvaluatorHFLM(
         pretrained=model_id,
-        cache_class=cache_class,
-        cache_kwargs=cache_kwargs,
-        prefill_fraction=prefill_fraction,
-        max_length=max_length,
+        cache_class=None,
+        cache_kwargs={},
+        prefill_fraction=kwargs.get("prefill_fraction", 0.2),
+        max_length=kwargs.get("max_length", 4096),
         device=set_device(),
-        # 也可以在此处传递其他 HF 模型参数，如 torch_dtype
-        # torch_dtype=torch.float16
     )
+    print(f">>> [Init] Model loaded successfully!\n")
 
-    # 3. 获取评测任务并执行
-    print(f">>> [Task] Running evaluation task: {task}...")
-    try:
-        evaluator_class = get_evaluator(task)
-        evaluator_instance = evaluator_class(model_wrapper=model_wrapper, **kwargs)
+    summary_results = {task: {} for task in tasks}
 
-        # 执行评测
-        result = evaluator_instance.evaluate()
+    for task in tasks:
+        print(f"\n{'=' * 60}")
+        print(f"📌 Task: {task.upper()}")
+        print(f"{'=' * 60}")
 
-        # 4. 打印结果
-        print("\n" + "=" * 40)
-        print(f"EVALUATION RESULT (Method: {method}, Task: {task})")
-        print("=" * 40)
-        print(result)
-        print("=" * 40 + "\n")
+        try:
+            evaluator_class = get_evaluator(task)
+        except Exception as e:
+            print(f"[Error] Failed to load evaluator for task '{task}': {e}")
+            continue
 
-    except Exception as e:
-        print(f"[Critical Error] Evaluation failed: {str(e)}")
-        raise e
+        for method in methods:
+            print(f"\n---> Evaluating Method: [{method.upper()}] on [{task}]")
+
+            try:
+                cache_class, cache_kwargs = get_cache_config(method, kwargs)
+                model_wrapper.cache_class = cache_class
+                model_wrapper.cache_kwargs = cache_kwargs
+            except Exception as e:
+                print(f"[Error] Failed to configure method '{method}': {e}")
+                summary_results[task][method] = "Config Error"
+                continue
+
+            try:
+                start_time = time.time()
+                evaluator_instance = evaluator_class(model_wrapper=model_wrapper, **kwargs)
+                result = evaluator_instance.evaluate()
+                elapsed = time.time() - start_time
+
+                summary_results[task][method] = result
+                print(f"     ✅ Done in {elapsed:.2f}s | Result: {result}")
+            except Exception as e:
+                print(f"     ❌ [Evaluation Failed] {str(e)}")
+                summary_results[task][method] = f"Error: {str(e)}"
+
+    # 3. 打印最终成绩汇总单
+    print("\n\n" + "=" * 60)
+    print("🏆 FINAL EVALUATION SUMMARY")
+    print("=" * 60)
+    for task, method_res in summary_results.items():
+        print(f"\n🔹 TASK: {task}")
+        print(f"{'Method':<15} | {'Result':<20}")
+        print("-" * 40)
+        for method, res in method_res.items():
+            res_str = f"{res:.4f}" if isinstance(res, float) else str(res)
+            print(f"{method:<15} | {res_str:<20}")
+    print("=" * 60 + "\n")
+
+    export_results(summary_results, kwargs.get("save_dir", None), kwargs.get("filename", None))
 
 
 def run():
-    parser = argparse.ArgumentParser(description="OT-KV & KV Compression Evaluation Framework (v2: Cache-based)")
-
-    # 基础模型与任务配置
+    parser = argparse.ArgumentParser(description="OT-KV & KV Compression Evaluation Framework (v2: Multi-Run)")
     parser.add_argument("--model_id", type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct",
                         help="HuggingFace model repository ID or local path")
-    parser.add_argument("--task", type=str, default="wikitext",
+    parser.add_argument("--tasks", type=str, nargs='+', default=["wikitext"],
                         choices=["wikitext", "niah", "longbench", "ruler"],
-                        help="Evaluation task name registered in TASK_REGISTRY")
-    parser.add_argument("--method", type=str, default="baseline",
+                        help="Evaluation task names (space separated, e.g., wikitext niah)")
+    parser.add_argument("--methods", type=str, nargs='+', default=["baseline"],
                         choices=["baseline", "otkv", "h2o", "streamingllm", "snapkv", "pyramidkv", "echokv"],
-                        help="KV Cache compression method")
-
-    # 压缩相关参数
-    parser.add_argument("--compression_size", type=float, default=0.5,
+                        help="KV Cache compression methods (space separated, e.g., baseline h2o snapkv)")
+    parser.add_argument("--compression_size", default=0.5,
                         help="Target KV Cache retention ratio (e.g., 0.5 means keep 50%)")
-    parser.add_argument("--recent_size", type=int, default=256,
+    parser.add_argument("--recent_size", default=0.1,
                         help="Size of the local/recent window for algorithms like H2O or StreamingLLM")
-    parser.add_argument("--sink_size", type=int, default=4,
+    parser.add_argument("--sink_size", default=4,
                         help="Number of initial/sink tokens to retain")
-    parser.add_argument("--observation_window", type=int, default=None,
-                        help="Query window used to score prompt tokens for SnapKV/PyramidKV")
-    parser.add_argument("--otkv_gamma", type=float, default=1.0,
-                        help="OTKV anchor weight exponent")
-    parser.add_argument("--otkv_epsilon", type=float, default=0.01,
-                        help="Sinkhorn entropy regularization for OTKV soft transport")
-    parser.add_argument("--otkv_transport_mode", type=str, default="soft", choices=["soft", "hard"],
-                        help="OTKV value merge transport mode")
-
-    # 评测流程控制
     parser.add_argument("--prefill_fraction", type=float, default=0.1,
                         help="Fraction of document used for the initial prefill stage in PPL testing")
     parser.add_argument("--max_length", type=int, default=4096,
@@ -160,10 +167,22 @@ def run():
 
     args = parser.parse_args()
 
-    # 将 args 转换为字典以便透传给具体任务
     main_kwargs = vars(args)
 
-    main(**main_kwargs)
+    tasks = main_kwargs.pop("tasks")
+    methods = main_kwargs.pop("methods")
+    model_id = main_kwargs.pop("model_id")
+    prefill_fraction = main_kwargs.pop("prefill_fraction")
+    max_length = main_kwargs.pop("max_length")
+
+    main(
+        model_id=model_id,
+        methods=methods,
+        tasks=tasks,
+        prefill_fraction=prefill_fraction,
+        max_length=max_length,
+        **main_kwargs
+    )
 
 
 if __name__ == "__main__":

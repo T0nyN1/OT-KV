@@ -5,7 +5,6 @@ import modal
 app = modal.App("ot-kv-framework-runner")
 data_volume = modal.Volume.from_name("ot_kv_data")
 
-# 1. 配置运行环境，并把代码挂载逻辑直接链式写在 Image 里
 eval_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install(
@@ -19,7 +18,7 @@ eval_image = (
         "tiktoken",
         "hf_transfer"
     )
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})  # 开启 hf_transfer
+    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
     .add_local_dir(
         local_path=".",
         remote_path="/app",
@@ -30,82 +29,85 @@ eval_image = (
 
 @app.function(
     image=eval_image,
-    gpu="A100-80GB",  # 可以根据你的预算和需求调整，如 "H100" 或 "L40S"
+    gpu="A100-80GB",
     volumes={"/ot_kv_data": data_volume},
     timeout=7200,
 )
 def run_framework_on_modal(
         model_id: str,
-        method: str,
-        task: str,
+        methods: list[str],
+        tasks: list[str],
         prefill_fraction: float,
         max_length: int,
         limit: int = None,
         **kwargs
 ):
-    # 将挂载的工作目录加入 Python 路径
     sys.path.append("/app")
     os.chdir("/app")
 
-    # 统一将各种缓存指引到挂载的 Volume，避免每次重启实例重新下载
     os.environ["HF_DATASETS_CACHE"] = "/ot_kv_data/datasets"
     os.environ["HF_HOME"] = "/ot_kv_data/models"
 
-    # 动态导入重构后的主函数
     from main import main as custom_main
 
-    print("=" * 50)
-    print("🚀 启动 Modal 远程评测流水线")
-    print(f"📦 模型:   {model_id}")
-    print(f"🧠 策略:   {method}")
-    print(f"🎯 任务:   {task}")
-    if method != "baseline":
-        print(f"⚙️  超参数: {kwargs}")
-    print("=" * 50)
+    print("=" * 60)
+    print("Launching modal evaluation pipeline...")
+    print(f"Model:   {model_id}")
+    print(f"Methods:   {', '.join(methods)}")
+    print(f"Tasks:   {', '.join(tasks)}")
+    print(f"Hyperparameters: {kwargs}")
+    print("=" * 60)
 
-    # 调用新架构的主函数，kwargs 会把 compression_size 等自动传给 Cache 类
+    save_dir = kwargs.get("save_dir", None)
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
     custom_main(
         model_id=model_id,
-        method=method,
-        task=task,
+        methods=methods,
+        tasks=tasks,
         prefill_fraction=prefill_fraction,
         max_length=max_length,
         limit=limit,
         **kwargs
     )
 
+    data_volume.commit()
+
 
 @app.local_entrypoint()
 def run(
-        # 基础配置
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        method: str = "baseline",
-        task: str = "wikitext",
-        prefill_fraction: float = 0.5,
+        methods: str = "baseline,h2o",
+        tasks: str = "wikitext,profile_niah",
+        prefill_fraction: float = 0.2,
         max_length: int = 4096,
-        limit: int = 2,
-        compression_size = 0.5,
-        recent_size = 0.4,
-        sink_size = 0.1,
+        limit: int = 1,
+        compression_size: float = 0.5,
+        recent_size: int = 0.1,
+        sink_size: int = 4,
+        mode: str = "prefill",
 ):
+    method_list = [m.strip() for m in methods.split(",")]
+    task_list = [t.strip() for t in tasks.split(",")]
+
     kwargs = {
         "compression_size": compression_size,
         "recent_size": recent_size,
         "sink_size": sink_size,
+        "mode": mode,
         "haystack_dir": "/ot_kv_data/datasets/niah/PaulGrahamEssays",
         "longbench_dir": "/ot_kv_data/datasets/LongBench_Dataset",
         "longbench_tasks": "qasper",
         "ruler_data_dir": "/ot_kv_data/datasets/ruler",
+        "save_dir": "/ot_kv_data/runs",
     }
 
-    # 处理 limit 的特殊情况
     eval_limit = limit if limit > 0 else None
 
-    # 触发远程执行
     run_framework_on_modal.remote(
         model_id=model_id,
-        method=method,
-        task=task,
+        methods=method_list,
+        tasks=task_list,
         prefill_fraction=prefill_fraction,
         max_length=max_length,
         limit=eval_limit,
