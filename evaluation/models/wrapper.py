@@ -162,8 +162,16 @@ class EvaluatorHFLM(HFLM):
 
                 # 获取压缩后的长度 (以第0层为例)
                 post_prefill_len = self._get_phys_length(past_key_values, 0)
+                budget = getattr(past_key_values, "budget", "N/A")
+                sink = getattr(past_key_values, "sink_size", "N/A")
+                recent = getattr(past_key_values, "recent_size", "N/A")
+                middle = getattr(past_key_values, "middle_budget", "N/A")
+
                 print(
-                    f"\n[KV Monitor] Stage: Prefill | Input Tokens: {q_len_prefill:<4} | Cache After: {post_prefill_len:<5}")
+                    f"\n[KV Monitor] Stage: Prefill | "
+                    f"Input Tokens: {q_len_prefill:<4} | "
+                    f"Cache: {post_prefill_len:<5} | "
+                    f"Budget: {budget:<4} (Sink:{sink} Middle:{middle} Recent:{recent})")
 
                 last_logit = outputs.logits[:, -1:, :]
                 total_logprob = 0.0
@@ -181,9 +189,6 @@ class EvaluatorHFLM(HFLM):
                     if i == decode_seq_len - 1:
                         break
 
-                    # --- [监控] Decode 阶段 ---
-                    pre_decode_len = self._get_phys_length(past_key_values, 0)
-
                     # 单步执行：输入 1 个 token，Cache 会自动进行驱逐/压缩
                     outputs = self._model(
                         input_ids=target_token,
@@ -194,14 +199,18 @@ class EvaluatorHFLM(HFLM):
                         return_dict=True
                     )
                     post_decode_len = self._get_phys_length(past_key_values, 0)
+
+                    budget = getattr(past_key_values, "budget", "N/A")
+                    sink = getattr(past_key_values, "sink_size", "N/A")
+                    recent = getattr(past_key_values, "recent_size", "N/A")
+                    middle = getattr(past_key_values, "middle_budget", "N/A")
+
                     last_logit = outputs.logits
                     # 动态刷新显示长度变化
                     log_str = (f"[KV Monitor] Stage: Decode  | Step: {i:<4} | "
-                               f"Cache Before: {pre_decode_len:<5} | "
-                               f"Cache After: {post_decode_len:<5}")
+                               f"Cache: {post_decode_len:<4} | "
+                               f"Budget: {budget:<4} (Sink:{sink} Middle:{middle} Recent:{recent})")
                     print(f"\r{log_str}\033[K", end="", flush=True)
-
-                    last_logit = outputs.logits
 
                 print()
                 results.append(total_logprob)

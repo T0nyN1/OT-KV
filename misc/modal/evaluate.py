@@ -63,7 +63,7 @@ def run_framework_on_modal(
         print(f"⚙️  超参数: {kwargs}")
     print("=" * 50)
 
-    # 调用新架构的主函数，kwargs 会把 compression_ratio 等自动传给 Cache 类
+    # 调用新架构的主函数，kwargs 会把 compression_size 等自动传给 Cache 类
     custom_main(
         model_id=model_id,
         method=method,
@@ -81,16 +81,16 @@ def run(
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
         method: str = "h2o",
         task: str = "wikitext",
-        prefill_fraction: float = 0.1,
+        prefill_fraction: float = 0.2,
         max_length: int = 4096,
         limit: int = 2,
-        compression_ratio: float = 0.5,
-        recent_window: int = 256,
-        sink_size: int = 4,
+        compression_size = 0.5,
+        recent_size = 0.2,
+        sink_size = 0.05,
 ):
     kwargs = {
-        "compression_ratio": compression_ratio,
-        "recent_window": recent_window,
+        "compression_size": compression_size,
+        "recent_size": recent_size,
         "sink_size": sink_size,
         "haystack_dir": "/ot_kv_data/datasets/niah/PaulGrahamEssays",
         "longbench_dir": "/ot_kv_data/datasets/LongBench_Dataset",

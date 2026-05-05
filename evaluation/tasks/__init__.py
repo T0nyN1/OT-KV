@@ -5,7 +5,6 @@ from . import wikitext
 from . import niah
 from . import longbench
 from . import profile_niah
-from . import ruler
 from . import kv_recovery
 
 __all__ = [
@@ -14,6 +13,5 @@ __all__ = [
     "niah",
     "longbench",
     "profile_niah",
-    "ruler",
     "kv_recovery"
 ]

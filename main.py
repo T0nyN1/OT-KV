@@ -26,8 +26,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         from baselines.h2o import H2OCache
         cache_class = H2OCache
         cache_kwargs = {
-            "compression_ratio": kwargs.get('compression_ratio', 0.5),
-            "recent_window": kwargs.get('recent_window', 256),
+            "compression_size": kwargs.get('compression_size', 0.5),
+            "recent_size": kwargs.get('recent_size', 256),
             "sink_size": kwargs.get('sink_size', 4),
         }
 
@@ -35,8 +35,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         from core.otkv import OTKVCache
         cache_class = OTKVCache
         cache_kwargs = {
-            "compression_ratio": kwargs.get('compression_ratio', 0.5),
-            "recent_window": kwargs.get('recent_window', 256),
+            "compression_size": kwargs.get('compression_size', 0.5),
+            "recent_size": kwargs.get('recent_size', 256),
             "sink_size": kwargs.get('sink_size', 4),
             "gamma": kwargs.get('otkv_gamma', 1.0),
             "epsilon": kwargs.get('otkv_epsilon', 0.01),
@@ -47,8 +47,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         from baselines.streamingllm import StreamingLLMCache
         cache_class = StreamingLLMCache
         cache_kwargs = {
-            "compression_ratio": kwargs.get('compression_ratio', 1.0),
-            "recent_window": kwargs.get('recent_window', 256),
+            "compression_size": kwargs.get('compression_size', 1.0),
+            "recent_size": kwargs.get('recent_size', 256),
             "sink_size": 4 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
         }
 
@@ -56,8 +56,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         from baselines.snapkv import SnapKVCache
         cache_class = SnapKVCache
         cache_kwargs = {
-            "compression_ratio": kwargs.get('compression_ratio', 0.5),
-            "recent_window": kwargs.get('recent_window', 256),
+            "compression_size": kwargs.get('compression_size', 0.5),
+            "recent_size": kwargs.get('recent_size', 256),
             "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
             "observation_window": kwargs.get('observation_window', None),
         }
@@ -66,8 +66,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         from baselines.pyramidkv import PyramidKVCache
         cache_class = PyramidKVCache
         cache_kwargs = {
-            "compression_ratio": kwargs.get('compression_ratio', 0.5),
-            "recent_window": kwargs.get('recent_window', 256),
+            "compression_size": kwargs.get('compression_size', 0.5),
+            "recent_size": kwargs.get('recent_size', 256),
             "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
             "observation_window": kwargs.get('observation_window', None),
         }
@@ -76,8 +76,8 @@ def main(model_id, method, task, prefill_fraction, max_length, **kwargs):
         from baselines.echokv import EchoKVCache
         cache_class = EchoKVCache
         cache_kwargs = {
-            "compression_ratio": kwargs.get('compression_ratio', 0.5),
-            "recent_window": kwargs.get('recent_window', 256),
+            "compression_size": kwargs.get('compression_size', 0.5),
+            "recent_size": kwargs.get('recent_size', 256),
             "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
         }
 
@@ -135,9 +135,9 @@ def run():
                         help="KV Cache compression method")
 
     # 压缩相关参数
-    parser.add_argument("--compression_ratio", type=float, default=0.5,
+    parser.add_argument("--compression_size", type=float, default=0.5,
                         help="Target KV Cache retention ratio (e.g., 0.5 means keep 50%)")
-    parser.add_argument("--recent_window", type=int, default=256,
+    parser.add_argument("--recent_size", type=int, default=256,
                         help="Size of the local/recent window for algorithms like H2O or StreamingLLM")
     parser.add_argument("--sink_size", type=int, default=4,
                         help="Number of initial/sink tokens to retain")
