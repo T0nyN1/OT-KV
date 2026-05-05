@@ -18,4 +18,4 @@ class WikitextEvaluator(BaseEvaluator):
             tasks=["wikitext"],
             limit=self.args.get('limit', None)
         )
-        return {"wikitext": results['results']}
+        return results['results']

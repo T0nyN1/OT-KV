@@ -19,48 +19,55 @@ def set_device():
 
 def export_results(summary_results: Dict[str, Dict[str, Any]], save_dir: Optional[str] = None,
                    filename: Optional[str] = None) -> None:
-    def _normalize_metrics(result: Any, task_name: str) -> Any:
+    def _flatten_result(result: Any, prefix: str = "") -> dict:
         if isinstance(result, str):
-            try:
-                parsed = ast.literal_eval(result)
-                if isinstance(parsed, dict):
-                    result = parsed
-            except (ValueError, SyntaxError):
-                pass
+            res_str = result.strip()
+            if res_str.startswith("{") and res_str.endswith("}"):
+                try:
+                    result = ast.literal_eval(res_str)
+                except (ValueError, SyntaxError):
+                    pass
 
-        if isinstance(result, dict):
-            if task_name in result:
-                return _normalize_metrics(result[task_name], task_name)
+        if not isinstance(result, dict):
+            return {prefix if prefix else "Score": result}
 
-            parsed_dict = {}
-            for k, v in result.items():
-                if isinstance(v, str) and v.strip().startswith("{"):
+        flat = {}
+        for k, v in result.items():
+            new_key = f"{prefix}_{k}" if prefix else str(k)
+
+            if isinstance(v, str):
+                v_str = v.strip()
+                if v_str.startswith("{") and v_str.endswith("}"):
                     try:
-                        v_parsed = ast.literal_eval(v)
-                        parsed_dict[k] = v_parsed if isinstance(v_parsed, dict) else v
+                        v = ast.literal_eval(v_str)
                     except (ValueError, SyntaxError):
-                        parsed_dict[k] = v
-                else:
-                    parsed_dict[k] = v
-            return parsed_dict
+                        pass
 
-        return result
+            if isinstance(v, dict):
+                flat.update(_flatten_result(v, new_key))
+            else:
+                flat[new_key] = v
+        return flat
 
-    print("Exporting results...")
     formatted_data = {}
 
     for task_name, method_res in summary_results.items():
-        for method_name, result in method_res.items():
+        for method_name, raw_result in method_res.items():
             if method_name not in formatted_data:
                 formatted_data[method_name] = {}
 
-            metrics_dict = _normalize_metrics(result, task_name)
+            flat_dict = _flatten_result(raw_result)
 
-            if isinstance(metrics_dict, dict):
-                for metric_name, metric_value in metrics_dict.items():
-                    formatted_data[method_name][(task_name, metric_name)] = metric_value
-            else:
-                formatted_data[method_name][(task_name, "Score")] = metrics_dict
+            for key, value in flat_dict.items():
+                if key.startswith(f"{task_name}_"):
+                    clean_key = key[len(task_name) + 1:]
+                elif key.startswith("needlehaystack_"):
+                    clean_key = key[len("needlehaystack_"):]
+                else:
+                    clean_key = key
+
+                # 存入多级索引字典
+                formatted_data[method_name][(task_name, clean_key)] = value
 
     if not formatted_data:
         print("No results found. Export aborted.")

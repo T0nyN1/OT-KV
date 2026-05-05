@@ -49,6 +49,7 @@ datasets/*
 results/
 outputs/
 *.log
+runs/
 
 # Modal 临时文件 (如果产生)
 .modal/
