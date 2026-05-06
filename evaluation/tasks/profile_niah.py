@@ -23,7 +23,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
         tokenizer = self.model_wrapper.tokenizer
         model = self.model_wrapper._model
 
-        prompt_length = self.args.get('profiler_prompt_length', 4000)
+        prompt_length = self.args.get('max_length', 4000)
         generate_length = self.args.get('profiler_gen_length', 128)
         haystack_dir = self.args.get('haystack_dir', "./datasets/PaulGrahamEssays")
 

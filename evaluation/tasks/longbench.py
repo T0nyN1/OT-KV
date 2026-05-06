@@ -47,7 +47,7 @@ class LongBenchEvaluator(BaseEvaluator):
         import torch
         from tqdm import tqdm
 
-        max_length = self.args.get('longbench_max_length', 7500)
+        max_length = self.args.get('max_length', 7500)
         tokenizer = self.model_wrapper.tokenizer
         model = self.model_wrapper._model
 
