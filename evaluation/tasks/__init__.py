@@ -1,11 +1,9 @@
-# evaluation/tasks/__init__.py
-from .registry import get_evaluator
-
-from . import wikitext
-from . import niah
-from . import longbench
-from . import profile_niah
 from . import kv_recovery
+from . import longbench
+from . import niah
+from . import profile_niah
+from . import wikitext
+from .registry import get_evaluator
 
 __all__ = [
     "get_evaluator",

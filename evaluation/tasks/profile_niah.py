@@ -6,10 +6,6 @@ from .registry import register_task
 
 @register_task("profile_niah")
 class ProfileNIAHEvaluator(BaseEvaluator):
-    """
-    基于 Needle In A Haystack 真实语料库的系统硬件压测。
-    用于测量在真实长文本分布下，首字推理时间 (TTFT)、纯 Decode 吞吐量和峰值显存。
-    """
 
     def evaluate(self) -> Dict[str, Any]:
         import torch
@@ -78,9 +74,6 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
         print("-> Running Benchmark...")
 
-        # ==================================================
-        # [核心适配] 初始化自定义 Cache 以测试压缩吞吐量
-        # ==================================================
         custom_cache = self.model_wrapper._setup_cache_and_hooks()
 
         torch.cuda.synchronize()

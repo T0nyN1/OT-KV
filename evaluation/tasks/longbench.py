@@ -1,4 +1,3 @@
-# evaluation/tasks/longbench.py
 import re
 import string
 from collections import Counter
@@ -16,7 +15,6 @@ def _normalize(s: str) -> str:
 
 
 def _qa_f1(prediction: str, ground_truths: list) -> float:
-    """Token-level F1 against the best-matching ground truth (LongBench standard)."""
     pred_tokens = _normalize(prediction).split()
     best = 0.0
     for gt in ground_truths:
@@ -31,13 +29,11 @@ def _qa_f1(prediction: str, ground_truths: list) -> float:
     return best
 
 
-# Set to "f1" (token-level F1, LongBench standard) or "accuracy" (substring match)
 LONGBENCH_METRIC = "f1"
 
 
 @register_task("longbench")
 class LongBenchEvaluator(BaseEvaluator):
-    """LongBench 原生评测任务"""
 
     def evaluate(self) -> Dict[str, Any]:
         import json
@@ -54,7 +50,6 @@ class LongBenchEvaluator(BaseEvaluator):
         longbench_dir = self.args.get("longbench_dir", "./datasets/LongBench_dataset")
         data_folder = os.path.join(longbench_dir, "data")
 
-        # 1. 先检查并下载数据集 (必须在获取 tasks 列表之前执行)
         if not os.path.exists(data_folder):
             print(f"\n[*] Downloading LongBench directly to {longbench_dir}...")
             os.makedirs(longbench_dir, exist_ok=True)
@@ -64,12 +59,10 @@ class LongBenchEvaluator(BaseEvaluator):
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(longbench_dir)
 
-        # 2. 动态获取需要评测的 tasks 列表
-        # 如果未传入 longbench_tasks，或者传入了 "all"，则自动遍历目录下所有 jsonl 文件
         tasks_arg = self.args.get('longbench_tasks', "all")
 
         if tasks_arg.strip().lower() == "all" or not tasks_arg:
-            # 获取所有以 .jsonl 结尾的文件名，并去掉后缀作为 task name
+
             tasks = [f.replace(".jsonl", "") for f in os.listdir(data_folder) if f.endswith(".jsonl")]
             print(f"\n[*] No specific tasks provided. Found {len(tasks)} tasks in dataset directory.")
         else:
@@ -96,11 +89,10 @@ class LongBenchEvaluator(BaseEvaluator):
                 query = item['input']
                 answers = item["answers"]
 
-                # 1. 动态构造 User Message (适配非 QA 任务)
                 if query.strip():
                     prompt = f"Please read the following context and answer the question.\n\nContext:\n{context}\n\nQuestion:\n{query}"
                 else:
-                    # 对于 lcc (代码补全) 等没有 question 的任务，直接给 context
+
                     prompt = context
                 messages = [{"role": "user", "content": prompt}]
                 input_tensor = tokenizer.apply_chat_template(

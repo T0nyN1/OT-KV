@@ -1,4 +1,3 @@
-# main.py
 import argparse
 import time
 
@@ -127,7 +126,6 @@ def main(model_id, methods, tasks, **kwargs):
                 print(f"     ❌ [Evaluation Failed] {str(e)}")
                 summary_results[task][method] = f"Error: {str(e)}"
 
-    # 3. 打印最终成绩汇总单
     print("\n\n" + "=" * 60)
     print("🏆 FINAL EVALUATION SUMMARY")
     print("=" * 60)

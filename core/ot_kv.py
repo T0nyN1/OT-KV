@@ -207,8 +207,6 @@ class OTKVCache(BaseCompressCache):
 
         decode_step = self.decode_steps.get(layer_idx, 0)
 
-        # 修复点 1：每次到达 interval 时（包含第 0 步），执行压缩
-        # 并显式要求腾出大小为 compress_interval 的缓冲池
         if decode_step % self.compress_interval == 0:
             self._compress_layer(
                 layer_idx,
@@ -228,7 +226,6 @@ class OTKVCache(BaseCompressCache):
         if middle_k is None or middle_k.shape[-2] == 0:
             return
 
-        # 修复点 2：从分配给 middle 的 budget 中，严格扣除未来需要的缓冲池空间
         layer_middle_budget = max(
             0,
             int(self.get_middle_budget(layer_idx, total_tokens)) - reserve_tokens

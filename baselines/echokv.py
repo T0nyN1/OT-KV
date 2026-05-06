@@ -1,16 +1,12 @@
-# baselines/echokv.py
 from typing import Optional
+
 import torch
 import torch.nn.functional as F
+
 from evaluation.models.base_cache import BaseCompressCache
 
 
 class EchoKVCache(BaseCompressCache):
-    """
-    基于新框架的 EchoKV 策略。
-    不使用注意力分数，仅在需要压缩时实时提取 Middle 区域的 Key 特征进行相似度聚类。
-    """
-
     requires_attention = False
 
     def __init__(self, max_representative_scan: Optional[int] = None, **kwargs):
@@ -55,7 +51,6 @@ class EchoKVCache(BaseCompressCache):
             self.prune_middle_cache(layer_idx, keep_indices)
             return
 
-        # 在 Middle 区域执行 EchoKV 的特征提取和代表性 Token 选择
         candidates = torch.arange(middle_k.shape[-2], device=middle_k.device, dtype=torch.long)
         keep_indices = self._select_representatives(middle_k, candidates, layer_middle_budget)
 
@@ -107,7 +102,7 @@ class EchoKVCache(BaseCompressCache):
         if budget <= 0 or n == 0:
             return candidates[:0]
         if budget == 1:
-            # linspace(steps=1) 会返回 [0]，并不"均匀"；改取序列中点更合理
+
             offsets = torch.tensor([n // 2], device=candidates.device, dtype=torch.long)
         else:
             offsets = torch.linspace(0, n - 1, steps=budget,

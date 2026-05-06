@@ -1,4 +1,3 @@
-# evaluation/tasks/niah.py
 import glob
 import os
 from typing import Dict, Any
@@ -11,7 +10,6 @@ from .registry import register_task
 
 @register_task("niah")
 class NIAHEvaluator(BaseEvaluator):
-    """动态大海捞针 (Needle In A Haystack) 评测任务"""
 
     def evaluate(self) -> Dict[str, Any]:
         print("\n[*] Running Needle In A Haystack Evaluation...")
@@ -45,23 +43,18 @@ class NIAHEvaluator(BaseEvaluator):
                     accuracy = sum(r['score'] for r in results_list) / len(results_list) if results_list else 0
                     return {"needlehaystack": {"overall_accuracy": accuracy}}
 
-                # ========================================================
-                # 🚦 [安检门] 评测前显存基线监控
-                # ========================================================
-                torch.cuda.synchronize()  # 确保之前的 GPU 异步操作全执行完
+                torch.cuda.synchronize()
                 mem_allocated = torch.cuda.memory_allocated() / (1024 ** 3)
                 mem_reserved = torch.cuda.memory_reserved() / (1024 ** 3)
 
                 print(f"\n" + "=" * 50)
-                print(f"🚀 [New Task] Length: {length:<4} | Depth: {depth:.2f}")
-                print(f"📊 [VRAM Base] Allocated: {mem_allocated:.2f} GB | Reserved: {mem_reserved:.2f} GB")
+                print(f"[New Task] Length: {length:<4} | Depth: {depth:.2f}")
+                print(f"[VRAM Base] Allocated: {mem_allocated:.2f} GB | Reserved: {mem_reserved:.2f} GB")
 
-                # 设定一个报警阈值 (Llama 3 8B 裸模型大概是 15-16 GB)
-                # 如果初始显存超过 18 GB，绝对说明有上一轮的垃圾没清干净！
                 if mem_allocated > 18.0:
-                    print(f"⚠️ [WARNING] 发现显存泄露嫌疑！基线占用异常偏高！")
+                    print(f"[WARNING] Suspected memory leak detected! Baseline occupancy is abnormally high!")
                 print("=" * 50)
-                # ========================================================
+
                 context_tokens = full_text_tokens[:length]
                 insert_idx = int(depth * len(context_tokens))
 

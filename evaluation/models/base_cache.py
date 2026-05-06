@@ -1,4 +1,3 @@
-# evaluation/models/base_cache.py
 from typing import Union
 
 import torch

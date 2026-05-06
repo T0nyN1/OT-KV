@@ -1,4 +1,3 @@
-# evaluation/models/wrapper.py
 import torch
 import torch.nn.functional as F
 from lm_eval.models.huggingface import HFLM
@@ -113,8 +112,6 @@ class EvaluatorHFLM(HFLM):
 
                 past_key_values = self._setup_cache_and_hooks()
 
-                # 1. 执行 Prefill
-                # (注意：不再需要在这里显式打印监控，因为 Cache 内部在 update 期间会自动打印)
                 outputs = self._model(
                     input_ids=prefix_ids,
                     use_cache=True,
@@ -126,7 +123,6 @@ class EvaluatorHFLM(HFLM):
                 total_logprob = 0.0
                 decode_seq_len = target_ids.shape[1]
 
-                # 2. 模拟单步 Decode (逐 Token 生成)
                 for i in range(decode_seq_len):
                     target_token = target_ids[:, i:i + 1]
 

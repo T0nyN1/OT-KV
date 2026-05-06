@@ -1,5 +1,5 @@
-import os
 import ast
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -66,7 +66,6 @@ def export_results(summary_results: Dict[str, Dict[str, Any]], save_dir: Optiona
                 else:
                     clean_key = key
 
-                # 存入多级索引字典
                 formatted_data[method_name][(task_name, clean_key)] = value
 
     if not formatted_data:

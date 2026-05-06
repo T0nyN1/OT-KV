@@ -1,4 +1,3 @@
-# evaluation/tasks/wikitext.py
 from typing import Dict, Any
 
 from .base_evaluator import BaseEvaluator
@@ -58,7 +57,6 @@ def _parse_wiki_docs(wiki_docs: str) -> list[int] | None:
 
 @register_task("wikitext")
 class WikitextEvaluator(BaseEvaluator):
-    """专门用于运行 lm-eval 的 wikitext PPL 测试"""
 
     def evaluate(self) -> Dict[str, Any]:
         from lm_eval import simple_evaluate

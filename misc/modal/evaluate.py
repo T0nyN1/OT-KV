@@ -78,11 +78,11 @@ def run_framework_on_modal(
 @app.local_entrypoint()
 def run(
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        methods: str = "h2o",
-        tasks: str = "profile_niah",
+        methods: str = "",
+        tasks: str = "niah",
         prefill_fraction: float = 0.5,
-        max_length: int = 10000,
-        limit: int = 10,
+        max_length: int = 12000,
+        limit: int = 0,
         wiki_docs: str = "",
         compression_size=0.5,
         recent_size=0.1,
