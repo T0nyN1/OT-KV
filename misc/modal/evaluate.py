@@ -83,6 +83,7 @@ def run(
         prefill_fraction: float = 0.5,
         max_length: int = 10000,
         limit: int = 10,
+        wiki_docs: str = "",
         compression_size=0.5,
         recent_size=0.1,
         sink_size=4,
@@ -102,6 +103,8 @@ def run(
         "ruler_data_dir": "/ot_kv_data/datasets/ruler",
         "save_dir": "/ot_kv_data/runs",
     }
+    if wiki_docs:
+        kwargs["wiki_docs"] = wiki_docs
 
     eval_limit = limit if limit > 0 else None
 

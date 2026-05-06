@@ -154,7 +154,7 @@ def run():
                         choices=["baseline", "otkv", "h2o", "streamingllm", "snapkv", "pyramidkv", "echokv"],
                         help="KV Cache compression methods (space separated, e.g., baseline h2o snapkv)")
     parser.add_argument("--compression_size", default=0.5,
-                        help="Target KV Cache retention ratio (e.g., 0.5 means keep 50%)")
+                        help="Target KV Cache retention ratio (e.g., 0.5 means keep 50%%)")
     parser.add_argument("--recent_size", default=0.1,
                         help="Size of the local/recent window for algorithms like H2O or StreamingLLM")
     parser.add_argument("--sink_size", default=4,
@@ -167,6 +167,8 @@ def run():
                         help="Maximum sequence length for the model")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit the number of samples for evaluation (for quick debugging)")
+    parser.add_argument("--wiki_docs", "--wiki-docs", type=str, default=None,
+                        help="Wikitext document numbers to evaluate, e.g. 1-10 or 1,2,3,4")
 
     args = parser.parse_args()
 
