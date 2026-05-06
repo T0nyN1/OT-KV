@@ -154,7 +154,7 @@ def run():
                         choices=["baseline", "otkv", "h2o", "streamingllm", "snapkv", "pyramidkv", "echokv"],
                         help="KV Cache compression methods (space separated, e.g., baseline h2o snapkv)")
     parser.add_argument("--compression_size", default=0.5,
-                        help="Target KV Cache retention ratio (e.g., 0.5 means keep 50%%)")
+                        help="Target KV Cache retention ratio (e.g., 0.5 means keep 50%)")
     parser.add_argument("--recent_size", default=0.1,
                         help="Size of the local/recent window for algorithms like H2O or StreamingLLM")
     parser.add_argument("--sink_size", default=4,
