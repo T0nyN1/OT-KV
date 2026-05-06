@@ -1,3 +1,3 @@
-from .ot_kv_simple  import OTKVCache
+from .ot_kv  import OTKVCache
 
 __all__ = ["OTKVCache"]
