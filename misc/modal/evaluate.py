@@ -1,5 +1,6 @@
 import os
 import sys
+
 import modal
 
 app = modal.App("ot-kv-framework-runner")
@@ -29,7 +30,7 @@ eval_image = (
 
 @app.function(
     image=eval_image,
-    gpu="A100-80GB",
+    gpu="H200",
     volumes={"/ot_kv_data": data_volume},
     timeout=7200,
 )
@@ -77,14 +78,14 @@ def run_framework_on_modal(
 @app.local_entrypoint()
 def run(
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        methods: str = "baseline,otkv,streamingllm,h2o,snapkv,pyramidkv,echokv",
-        tasks: str = "wikitext,niah,longbench,profile_niah,kv_recovery",
-        prefill_fraction: float = 0.2,
-        max_length: int = 12000,
-        limit: int = 0,
-        compression_size = 0.5,
-        recent_size = 0.1,
-        sink_size = 4,
+        methods: str = "h2o",
+        tasks: str = "profile_niah",
+        prefill_fraction: float = 0.5,
+        max_length: int = 10000,
+        limit: int = 10,
+        compression_size=0.5,
+        recent_size=0.1,
+        sink_size=4,
         mode: str = "prefill",
 ):
     method_list = [m.strip() for m in methods.split(",")]

@@ -94,8 +94,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
                 min_new_tokens=generate_length,
                 do_sample=False,
                 pad_token_id=tokenizer.eos_token_id,
-                past_key_values=custom_cache,  # 应用压缩策略
-                output_attentions=True,  # 保证 Hook 生效
+                past_key_values=custom_cache,
                 use_cache=True,
                 logits_processor=logits_processor
             )

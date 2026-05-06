@@ -31,12 +31,10 @@ class KVRecoveryEvaluator(BaseEvaluator):
         custom_cache = self.model_wrapper._setup_cache_and_hooks()
         try:
             with torch.no_grad():
-                # 传入自定义 cache 并开启 output_attentions 激活压缩逻辑
                 outputs_compressed = model(
                     inputs.input_ids,
                     use_cache=True,
                     past_key_values=custom_cache,
-                    output_attentions=True
                 )
                 cache_compressed = outputs_compressed.past_key_values
                 if hasattr(cache_compressed, "on_prefill_end"):

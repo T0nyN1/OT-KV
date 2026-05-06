@@ -23,16 +23,16 @@ def _get_attention_hook(cache_obj, layer_idx):
     def hook(module, inputs, outputs):
         if isinstance(outputs, tuple) and len(outputs) > 1:
             attn_weights = outputs[1]
-            if attn_weights is not None:
-                with torch.no_grad():
-                    accumulated_score = cache_obj.reduce_attention(attn_weights)
-                    cache_obj.current_attention_scores[layer_idx] = accumulated_score
+            assert attn_weights is not None
+            with torch.no_grad():
+                accumulated_score = cache_obj.reduce_attention(attn_weights)
+                cache_obj.current_attention_scores[layer_idx] = accumulated_score
 
-                attn_weights.untyped_storage().resize_(0)
+            attn_weights.untyped_storage().resize_(0)
 
-                new_outputs = list(outputs)
-                new_outputs[1] = None
-                return tuple(new_outputs)
+            new_outputs = list(outputs)
+            new_outputs[1] = None
+            return tuple(new_outputs)
 
         return outputs
 
@@ -43,7 +43,7 @@ class EvaluatorHFLM(HFLM):
     def __init__(self, pretrained: str, cache_class=None, cache_kwargs=None,
                  prefill_fraction=0.1, max_length=4096, **kwargs):
 
-        kwargs["attn_implementation"] = kwargs.get("attn_implementation", "eager")
+        kwargs["attn_implementation"] = "eager"
         super().__init__(pretrained=pretrained, max_length=max_length, **kwargs)
 
         self.prefill_fraction = prefill_fraction
@@ -112,7 +112,6 @@ class EvaluatorHFLM(HFLM):
                 print()
 
                 past_key_values = self._setup_cache_and_hooks()
-                needs_attn = getattr(past_key_values, "requires_attention", False)
 
                 # 1. 执行 Prefill
                 # (注意：不再需要在这里显式打印监控，因为 Cache 内部在 update 期间会自动打印)
@@ -120,7 +119,6 @@ class EvaluatorHFLM(HFLM):
                     input_ids=prefix_ids,
                     use_cache=True,
                     past_key_values=past_key_values,
-                    output_attentions=needs_attn,
                     return_dict=True
                 )
 
@@ -144,7 +142,6 @@ class EvaluatorHFLM(HFLM):
                         past_key_values=past_key_values,
                         use_cache=True,
                         position_ids=torch.tensor([[split_idx + i]], device=device),
-                        output_attentions=needs_attn,
                         return_dict=True
                     )
 

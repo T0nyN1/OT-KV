@@ -81,7 +81,6 @@ class NIAHEvaluator(BaseEvaluator):
                         do_sample=False,
                         pad_token_id=tokenizer.eos_token_id,
                         past_key_values=custom_cache,
-                        output_attentions=True,
                         use_cache=True
                     )
                 self._cleanup_cache_and_hooks(custom_cache)

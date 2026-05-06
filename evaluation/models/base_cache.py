@@ -105,6 +105,7 @@ class BaseCompressCache(DynamicCache):
         raise NotImplementedError
 
     def reduce_attention(self, attn_weights: torch.Tensor) -> torch.Tensor:
+        assert attn_weights is not None
         return attn_weights.sum(dim=-2).detach()
 
     def _update_budget(self, total_tokens: int, is_prefill_end: bool = False):

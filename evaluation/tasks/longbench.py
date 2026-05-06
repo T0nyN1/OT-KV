@@ -113,19 +113,16 @@ class LongBenchEvaluator(BaseEvaluator):
                     half = max_length // 2
                     input_tensor = torch.cat([input_tensor[:, :half], input_tensor[:, -half:]], dim=1)
 
-                attention_mask = torch.ones_like(input_tensor)
-
                 custom_cache = self.model_wrapper._setup_cache_and_hooks()
 
                 with torch.no_grad():
                     output_ids = model.generate(
                         input_tensor,
-                        attention_mask=attention_mask,
+                        attention_mask=torch.ones_like(input_tensor),
                         max_new_tokens=64,
                         do_sample=False,
                         pad_token_id=tokenizer.eos_token_id,
                         past_key_values=custom_cache,
-                        output_attentions=True,
                         use_cache=True
                     )
                 self._cleanup_cache_and_hooks(custom_cache)
