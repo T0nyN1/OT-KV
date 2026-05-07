@@ -30,6 +30,8 @@ def get_cache_config(method: str, kwargs: dict):
                 "epsilon": kwargs.get('otkv_epsilon', 0.01),
                 "transport_mode": kwargs.get('otkv_transport_mode', "soft"),
                 "compress_interval": kwargs.get('otkv_compress_interval', 32),
+                "target_beta": kwargs.get("target_beta", 0.0),
+                "sinkhorn_iters": kwargs.get("sinkhorn_iters", 50)
             }
 
         case "streamingllm":
@@ -55,7 +57,8 @@ def get_cache_config(method: str, kwargs: dict):
                 "compression_size": kwargs.get('compression_size', 0.5),
                 "recent_size": kwargs.get('recent_size', 0.1),
                 "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
-                "observation_window": kwargs.get('observation_window', None),
+                "pyramid_low_scale": kwargs.get('pyramid_low_scale', 1.5),
+                "pyramid_high_scale": kwargs.get('pyramid_high_scale', 0.5),
             }
 
         case "echokv":
@@ -64,6 +67,7 @@ def get_cache_config(method: str, kwargs: dict):
                 "compression_size": kwargs.get('compression_size', 0.5),
                 "recent_size": kwargs.get('recent_size', 0.1),
                 "sink_size": 0 if kwargs.get('sink_size') is None else kwargs.get('sink_size'),
+                "max_representative_scan": kwargs.get('max_representative_scan', None),
             }
 
         case _:

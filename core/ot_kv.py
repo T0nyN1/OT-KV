@@ -19,9 +19,9 @@ def sinkhorn_log_space(cost_matrix: torch.Tensor, epsilon: float = 0.01,
     n_evict = cost_matrix.shape[-2]
     m_anchor = cost_matrix.shape[-1]
 
-    cost_matrix = cost_matrix.float()
-    f = torch.zeros_like(cost_matrix[:, :, :, 0])
-    g = torch.zeros_like(cost_matrix[:, :, 0, :])
+    C_eps = (cost_matrix.float() / epsilon)
+    f = torch.zeros_like(C_eps[:, :, :, 0])
+    g = torch.zeros_like(C_eps[:, :, 0, :])
 
     mu = torch.full((n_evict,), 1.0 / n_evict, device=cost_matrix.device, dtype=cost_matrix.dtype).log()
 
@@ -34,8 +34,8 @@ def sinkhorn_log_space(cost_matrix: torch.Tensor, epsilon: float = 0.01,
         nu = target_marginal.log()
 
     for _ in range(int(max_iter)):
-        f = epsilon * (mu - torch.logsumexp((g.unsqueeze(-2) - cost_matrix) / epsilon, dim=-1))
-        g = epsilon * (nu - torch.logsumexp((f.unsqueeze(-1) - cost_matrix) / epsilon, dim=-2))
+        f = epsilon * (mu - torch.logsumexp(g.unsqueeze(-2) - C_eps, dim=-1))
+        g = epsilon * (nu - torch.logsumexp(f.unsqueeze(-1) - C_eps, dim=-2))
 
     log_t = (f.unsqueeze(-1) + g.unsqueeze(-2) - cost_matrix) / epsilon
     return torch.exp(log_t)
@@ -92,7 +92,8 @@ def _build_ot_cost_matrix(dists: torch.Tensor, w_anchor: torch.Tensor, gamma: fl
     anchor_penalty = relative_anchor_weight.clamp_min(COST_SCALE_EPS).pow(gamma)
 
     raw_cost = dists / anchor_penalty.unsqueeze(-2)
-    cost_scale = raw_cost.flatten(-2).median(dim=-1).values
+    # cost_scale = raw_cost.flatten(-2).median(dim=-1).values
+    cost_scale = raw_cost.flatten(-2).mean(dim=-1)
     cost_scale = cost_scale.clamp_min(COST_SCALE_EPS).view(*cost_scale.shape, 1, 1)
 
     return raw_cost / cost_scale, relative_anchor_weight
@@ -129,10 +130,13 @@ def otkv_compress(key_states: torch.Tensor, value_states: torch.Tensor, budget: 
     if k_evict.shape[-2] == 0:
         return k_anchor, v_anchor, w_anchor
 
+    k_evict_norm = F.normalize(k_evict, dim=-1)
+    k_anchor_norm = F.normalize(k_anchor, dim=-1)
+
     dists = 1.0 - torch.matmul(
         F.normalize(k_evict.float(), dim=-1),
         F.normalize(k_anchor.float(), dim=-1).transpose(-1, -2),
-    )
+    ).float()
 
     cost_matrix, relative_anchor_weight = _build_ot_cost_matrix(dists, w_anchor, gamma)
     target_marginal = _build_anchor_target_marginal(relative_anchor_weight, target_beta)
@@ -160,7 +164,6 @@ def otkv_compress(key_states: torch.Tensor, value_states: torch.Tensor, budget: 
 class OTKVCache(BaseCompressCache):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
         self.gamma = float(kwargs.get('gamma', 1.0))
         self.epsilon = float(kwargs.get('epsilon', 0.01))
         self.transport_mode = kwargs.get('transport_mode', 'soft')
