@@ -10,6 +10,13 @@ class StreamingLLMCache(BaseCompressCache):
         super().__init__(**kwargs)
         self.active_layers = set()
 
+    def _update_budget(self, total_tokens: int, is_prefill_end: bool = False):
+        super()._update_budget(total_tokens, is_prefill_end)
+
+        if self.middle_budget > 0:
+            self.recent_size += self.middle_budget
+            self.middle_budget = 0
+
     def on_prefill(self, key_states: torch.Tensor, value_states: torch.Tensor,
                    layer_idx: int, cache_kwargs: dict):
         self.active_layers.add(layer_idx)

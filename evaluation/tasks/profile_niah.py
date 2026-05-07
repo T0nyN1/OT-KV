@@ -58,27 +58,55 @@ class ProfileNIAHEvaluator(BaseEvaluator):
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
-        class TTFTTracker(LogitsProcessor):
-            def __init__(self):
+        custom_cache = self.model_wrapper._setup_cache_and_hooks()
+
+        def get_current_kv_bytes(cache_obj):
+            current_bytes = 0
+            if cache_obj is not None:
+                if hasattr(cache_obj, "layers"):
+                    for layer in cache_obj.layers:
+                        if hasattr(layer, "keys") and layer.keys is not None:
+                            current_bytes += layer.keys.numel() * layer.keys.element_size()
+                        if hasattr(layer, "values") and layer.values is not None:
+                            current_bytes += layer.values.numel() * layer.values.element_size()
+                elif hasattr(cache_obj, "key_cache") and hasattr(cache_obj, "value_cache"):
+                    for k in cache_obj.key_cache:
+                        if k is not None:
+                            current_bytes += k.numel() * k.element_size()
+                    for v in cache_obj.value_cache:
+                        if v is not None:
+                            current_bytes += v.numel() * v.element_size()
+            return current_bytes
+
+        class ProfilerTracker(LogitsProcessor):
+            def __init__(self, cache_obj):
                 self.start_time = None
                 self.ttft = None
+                self.cache_obj = cache_obj
+                self.max_kv_bytes = 0
 
             def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
                 if self.ttft is None and self.start_time is not None:
                     torch.cuda.synchronize()
                     self.ttft = time.time() - self.start_time
+
+                is_compressed_state = getattr(self.cache_obj, "_prefill_finalized", True)
+
+                if is_compressed_state:
+                    current_bytes = get_current_kv_bytes(self.cache_obj)
+                    if current_bytes > self.max_kv_bytes:
+                        self.max_kv_bytes = current_bytes
+
                 return scores
 
-        ttft_tracker = TTFTTracker()
-        logits_processor = LogitsProcessorList([ttft_tracker])
+        tracker = ProfilerTracker(custom_cache)
+        logits_processor = LogitsProcessorList([tracker])
 
         print("-> Running Benchmark...")
 
-        custom_cache = self.model_wrapper._setup_cache_and_hooks()
-
         torch.cuda.synchronize()
         start_time = time.time()
-        ttft_tracker.start_time = start_time
+        tracker.start_time = start_time
 
         with torch.no_grad():
             output_ids = model.generate(
@@ -91,19 +119,23 @@ class ProfileNIAHEvaluator(BaseEvaluator):
                 use_cache=True,
                 logits_processor=logits_processor
             )
+
+        final_bytes = get_current_kv_bytes(custom_cache)
+        max_bytes = max(tracker.max_kv_bytes, final_bytes)
+        kv_cache_mb = max_bytes / (1024 ** 2)
+
         self._cleanup_cache_and_hooks(custom_cache)
 
         torch.cuda.synchronize()
         end_time = time.time()
 
         total_time = end_time - start_time
-        ttft = ttft_tracker.ttft if ttft_tracker.ttft else total_time
+        ttft = tracker.ttft if tracker.ttft else total_time
         decode_time = total_time - ttft
         decode_tokens = max(generate_length - 1, 1)
 
         decode_tps = decode_tokens / decode_time if decode_time > 0 else 0
         overall_tps = generate_length / total_time
-        peak_memory_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
 
         print(f"\n--- Profiling Results ---")
         print(f"-> Context Length: {inputs.input_ids.shape[1]} tokens")
@@ -112,7 +144,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
         print(f"-> Pure Decode Time ({decode_tokens} tokens): {decode_time:.4f} s")
         print(f"-> Pure Decode Throughput: {decode_tps:.2f} tokens/s")
         print(f"-> Overall Throughput: {overall_tps:.2f} tokens/s")
-        print(f"-> Peak VRAM Usage: {peak_memory_mb:.2f} MB")
+        print(f"-> Peak Compressed KV Cache Memory: {kv_cache_mb:.2f} MB")
         print("---------------------------------------")
 
         return {
@@ -123,6 +155,6 @@ class ProfileNIAHEvaluator(BaseEvaluator):
                 "pure_decode_time_s": decode_time,
                 "pure_decode_throughput_tps": decode_tps,
                 "overall_throughput_tps": overall_tps,
-                "peak_memory_mb": peak_memory_mb,
+                "kv_cache_mb": kv_cache_mb,
             }
         }
