@@ -78,8 +78,8 @@ def run_framework_on_modal(
 @app.local_entrypoint()
 def run(
         model_id: str = "/ot_kv_data/models/Llama-3.1-8B-Instruct",
-        methods: str = "",
-        tasks: str = "niah",
+        methods: str = "otkv",
+        tasks: str = "longbench,profile_niah",
         prefill_fraction: float = 0.5,
         max_length: int = 12000,
         limit: int = 0,
@@ -100,8 +100,8 @@ def run(
         "haystack_dir": "/ot_kv_data/datasets/niah/PaulGrahamEssays",
         "longbench_dir": "/ot_kv_data/datasets/LongBench_Dataset",
         "longbench_tasks": "qasper",
-        "ruler_data_dir": "/ot_kv_data/datasets/ruler",
         "save_dir": "/ot_kv_data/runs",
+        "sinkhorn_iters": 50
     }
     if wiki_docs:
         kwargs["wiki_docs"] = wiki_docs

@@ -169,7 +169,7 @@ def otkv_compress(key_states: torch.Tensor, value_states: torch.Tensor, budget: 
     target_marginal = _build_anchor_target_marginal(relative_anchor_weight, target_beta)
 
     if transport_mode == "soft":
-        transport = sinkhorn_log_space(
+        transport = sinkhorn_matrix_space(
             cost_matrix,
             epsilon=epsilon,
             max_iter=sinkhorn_iters,
