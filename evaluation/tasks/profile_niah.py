@@ -19,6 +19,14 @@ class ProfileNIAHEvaluator(BaseEvaluator):
         tokenizer = self.model_wrapper.tokenizer
         model = self.model_wrapper._model
 
+        device = getattr(self.model_wrapper, 'device', model.device)
+
+        def synchronize_device():
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
+            elif device.type == 'mps':
+                torch.mps.synchronize()
+
         prompt_length = self.args.get('max_length', 4000)
         generate_length = self.args.get('profiler_gen_length', 128)
         haystack_dir = self.args.get('haystack_dir', "./datasets/PaulGrahamEssays")
@@ -40,12 +48,12 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
         context_tokens = full_text_tokens[:prompt_length]
         real_prompt = tokenizer.decode(context_tokens)
-        inputs = tokenizer(real_prompt, return_tensors="pt").to(model.device)
+        inputs = tokenizer(real_prompt, return_tensors="pt").to(device)
 
         print(f"-> Target Prefill Length: {inputs.input_ids.shape[1]} tokens")
         print(f"-> Target Generate Length: {generate_length} tokens")
 
-        print("-> Performing CUDA Warm-up...")
+        print(f"-> Performing Warm-up on {device.type.upper()}...")
         with torch.no_grad():
             _ = model.generate(
                 inputs.input_ids[:, :128],
@@ -54,9 +62,14 @@ class ProfileNIAHEvaluator(BaseEvaluator):
                 pad_token_id=tokenizer.eos_token_id
             )
 
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
+        synchronize_device()
+
+        # Device-agnostic memory cleanup
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+        elif device.type == 'mps':
+            torch.mps.empty_cache()
 
         custom_cache = self.model_wrapper._setup_cache_and_hooks()
 
@@ -87,7 +100,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
             def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
                 if self.ttft is None and self.start_time is not None:
-                    torch.cuda.synchronize()
+                    synchronize_device()
                     self.ttft = time.time() - self.start_time
 
                 is_compressed_state = getattr(self.cache_obj, "_prefill_finalized", True)
@@ -104,7 +117,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
         print("-> Running Benchmark...")
 
-        torch.cuda.synchronize()
+        synchronize_device()
         start_time = time.time()
         tracker.start_time = start_time
 
@@ -126,7 +139,7 @@ class ProfileNIAHEvaluator(BaseEvaluator):
 
         self._cleanup_cache_and_hooks(custom_cache)
 
-        torch.cuda.synchronize()
+        synchronize_device()
         end_time = time.time()
 
         total_time = end_time - start_time

@@ -15,6 +15,7 @@ class NIAHEvaluator(BaseEvaluator):
         print("\n[*] Running Needle In A Haystack Evaluation...")
         tokenizer = self.model_wrapper.tokenizer
         model = self.model_wrapper._model
+        device = getattr(self.model_wrapper, 'device', model.device)
 
         haystack_dir = self.args.get('haystack_dir', "datasets/niah/PaulGrahamEssays")
         max_length = self.model_wrapper.max_length
@@ -43,17 +44,19 @@ class NIAHEvaluator(BaseEvaluator):
                     accuracy = sum(r['score'] for r in results_list) / len(results_list) if results_list else 0
                     return {"needlehaystack": {"overall_accuracy": accuracy}}
 
-                torch.cuda.synchronize()
-                mem_allocated = torch.cuda.memory_allocated() / (1024 ** 3)
-                mem_reserved = torch.cuda.memory_reserved() / (1024 ** 3)
 
-                print(f"\n" + "=" * 50)
-                print(f"[New Task] Length: {length:<4} | Depth: {depth:.2f}")
-                print(f"[VRAM Base] Allocated: {mem_allocated:.2f} GB | Reserved: {mem_reserved:.2f} GB")
+                if device == "cuda":
+                    torch.cuda.synchronize()
+                    mem_allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+                    mem_reserved = torch.cuda.memory_reserved() / (1024 ** 3)
 
-                if mem_allocated > 18.0:
-                    print(f"[WARNING] Suspected memory leak detected! Baseline occupancy is abnormally high!")
-                print("=" * 50)
+                    print(f"\n" + "=" * 50)
+                    print(f"[New Task] Length: {length:<4} | Depth: {depth:.2f}")
+                    print(f"[VRAM Base] Allocated: {mem_allocated:.2f} GB | Reserved: {mem_reserved:.2f} GB")
+
+                    if mem_allocated > 18.0:
+                        print(f"[WARNING] Suspected memory leak detected! Baseline occupancy is abnormally high!")
+                    print("=" * 50)
 
                 context_tokens = full_text_tokens[:length]
                 insert_idx = int(depth * len(context_tokens))

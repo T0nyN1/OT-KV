@@ -23,6 +23,7 @@ env.bak/
 venv.bak/
 
 datasets/*
+models/*
 !datasets/.gitkeep
 
 *.pt

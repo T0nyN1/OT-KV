@@ -13,13 +13,40 @@ def _validate_transport_mode(transport_mode: str):
         raise ValueError("transport_mode must be 'soft' or 'hard'.")
 
 
+def sinkhorn_matrix_space(cost_matrix: torch.Tensor, epsilon: float = 0.05,
+                          max_iter: int = 20,
+                          target_marginal: Optional[torch.Tensor] = None) -> torch.Tensor:
+    K = torch.exp(-cost_matrix.float() / epsilon)
+
+    n_evict = cost_matrix.shape[-2]
+    m_anchor = cost_matrix.shape[-1]
+
+    mu = torch.full((n_evict,), 1.0 / n_evict, device=cost_matrix.device, dtype=K.dtype)
+
+    if target_marginal is None:
+        nu = torch.full((m_anchor,), 1.0 / m_anchor, device=cost_matrix.device, dtype=K.dtype)
+    else:
+        nu = target_marginal.to(device=cost_matrix.device, dtype=K.dtype)
+        nu = nu.clamp_min(COST_SCALE_EPS)
+        nu = nu / nu.sum(dim=-1, keepdim=True)
+
+    u = torch.ones_like(mu)
+    v = torch.ones_like(nu)
+
+    for _ in range(int(max_iter)):
+        u = mu / torch.matmul(K, v.unsqueeze(-1)).squeeze(-1).clamp_min(1e-9)
+        v = nu / torch.matmul(K.transpose(-1, -2), u.unsqueeze(-1)).squeeze(-1).clamp_min(1e-9)
+
+    transport = u.unsqueeze(-1) * K * v.unsqueeze(-2)
+    return transport
+
 def sinkhorn_log_space(cost_matrix: torch.Tensor, epsilon: float = 0.01,
                        max_iter: int = 50,
                        target_marginal: Optional[torch.Tensor] = None) -> torch.Tensor:
     n_evict = cost_matrix.shape[-2]
     m_anchor = cost_matrix.shape[-1]
 
-    C_eps = (cost_matrix.float() / epsilon)
+    C_eps = cost_matrix.float() / epsilon
     f = torch.zeros_like(C_eps[:, :, :, 0])
     g = torch.zeros_like(C_eps[:, :, 0, :])
 
@@ -34,10 +61,10 @@ def sinkhorn_log_space(cost_matrix: torch.Tensor, epsilon: float = 0.01,
         nu = target_marginal.log()
 
     for _ in range(int(max_iter)):
-        f = epsilon * (mu - torch.logsumexp(g.unsqueeze(-2) - C_eps, dim=-1))
-        g = epsilon * (nu - torch.logsumexp(f.unsqueeze(-1) - C_eps, dim=-2))
+        f = mu - torch.logsumexp(g.unsqueeze(-2) - C_eps, dim=-1)
+        g = nu - torch.logsumexp(f.unsqueeze(-1) - C_eps, dim=-2)
 
-    log_t = (f.unsqueeze(-1) + g.unsqueeze(-2) - cost_matrix) / epsilon
+    log_t = f.unsqueeze(-1) + g.unsqueeze(-2) - C_eps
     return torch.exp(log_t)
 
 
@@ -134,8 +161,8 @@ def otkv_compress(key_states: torch.Tensor, value_states: torch.Tensor, budget: 
     k_anchor_norm = F.normalize(k_anchor, dim=-1)
 
     dists = 1.0 - torch.matmul(
-        F.normalize(k_evict.float(), dim=-1),
-        F.normalize(k_anchor.float(), dim=-1).transpose(-1, -2),
+        k_evict_norm,
+        k_anchor_norm.transpose(-1, -2),
     ).float()
 
     cost_matrix, relative_anchor_weight = _build_ot_cost_matrix(dists, w_anchor, gamma)
@@ -148,7 +175,8 @@ def otkv_compress(key_states: torch.Tensor, value_states: torch.Tensor, budget: 
             max_iter=sinkhorn_iters,
             target_marginal=target_marginal,
         )
-        v_merged = v_anchor.float() + torch.matmul(transport.transpose(-1, -2), v_evict.float())
+        transport = transport.to(value_states.dtype)
+        v_merged = v_anchor + torch.matmul(transport.transpose(-1, -2), v_evict)
     else:
         best_anchor = torch.argmin(cost_matrix, dim=-1)
         v_merged = v_anchor.float().clone()
@@ -219,8 +247,7 @@ class OTKVCache(BaseCompressCache):
 
         self.decode_steps[layer_idx] = decode_step + q_len
 
-        new_scores = torch.zeros((batch, num_heads, q_len), device=device, dtype=dtype)
-        self.attn_scores[layer_idx] = torch.cat([self.attn_scores[layer_idx], new_scores], dim=-1)
+        self.attn_scores[layer_idx] = F.pad(self.attn_scores[layer_idx], (0, q_len))
 
         return key_states, value_states
 
@@ -277,9 +304,7 @@ class OTKVCache(BaseCompressCache):
         if usable == 0:
             return
 
-        updated_scores = current_scores.clone()
-        updated_scores[..., :usable] += score_update[..., :usable]
-        self.attn_scores[layer_idx] = updated_scores
+        current_scores[..., :usable] += score_update[..., :usable]
 
     @staticmethod
     def _attention_to_token_scores(attn_weights: torch.Tensor, target_shape: Tuple[int, ...]) -> torch.Tensor:

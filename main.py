@@ -75,11 +75,13 @@ def get_cache_config(method: str, kwargs: dict):
 
 
 def main(model_id, methods, tasks, **kwargs):
+    device = set_device()
     print(f"\n{'=' * 60}")
     print(f"🚀 Starting Multi-Evaluation Pipeline")
     print(f"Model  : {model_id}")
     print(f"Tasks  : {', '.join(tasks)}")
     print(f"Methods: {', '.join(methods)}")
+    print(f"Using device: {device}")
     print(f"{'=' * 60}\n")
 
     print(f">>> [Init] Loading Large Language Model ONCE into VRAM...")
@@ -89,7 +91,7 @@ def main(model_id, methods, tasks, **kwargs):
         cache_kwargs={},
         prefill_fraction=kwargs.get("prefill_fraction", 0.2),
         max_length=kwargs.get("max_length", 4096),
-        device=set_device(),
+        device=device,
     )
     print(f">>> [Init] Model loaded successfully!\n")
 
@@ -150,7 +152,7 @@ def run():
     parser.add_argument("--model_id", type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct",
                         help="HuggingFace model repository ID or local path")
     parser.add_argument("--tasks", type=str, nargs='+', default=["wikitext"],
-                        choices=["wikitext", "niah", "longbench", "ruler"],
+                        choices=["wikitext", "niah", "longbench", "profile_niah", "kv_recovery"],
                         help="Evaluation task names (space separated, e.g., wikitext niah)")
     parser.add_argument("--methods", type=str, nargs='+', default=["baseline"],
                         choices=["baseline", "otkv", "h2o", "streamingllm", "snapkv", "pyramidkv", "echokv"],
@@ -169,27 +171,16 @@ def run():
                         help="Maximum sequence length for the model")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit the number of samples for evaluation (for quick debugging)")
-    parser.add_argument("--wiki_docs", "--wiki-docs", type=str, default=None,
+    parser.add_argument("--wiki_docs", type=str, default=None,
                         help="Wikitext document numbers to evaluate, e.g. 1-10 or 1,2,3,4")
+    parser.add_argument("--haystack_dir", type=str, default="datasets/niah/PaulGrahamEssays", )
+    parser.add_argument("--longbench_dir", type=str, default="datasets/LongBench_dataset", )
+    parser.add_argument("--longbench_tasks", type=str, default="all")
+    parser.add_argument("--save_dir", type=str, default="runs")
 
     args = parser.parse_args()
-
     main_kwargs = vars(args)
-
-    tasks = main_kwargs.pop("tasks")
-    methods = main_kwargs.pop("methods")
-    model_id = main_kwargs.pop("model_id")
-    prefill_fraction = main_kwargs.pop("prefill_fraction")
-    max_length = main_kwargs.pop("max_length")
-
-    main(
-        model_id=model_id,
-        methods=methods,
-        tasks=tasks,
-        prefill_fraction=prefill_fraction,
-        max_length=max_length,
-        **main_kwargs
-    )
+    main(**main_kwargs)
 
 
 if __name__ == "__main__":

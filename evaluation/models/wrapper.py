@@ -26,8 +26,10 @@ def _get_attention_hook(cache_obj, layer_idx):
             with torch.no_grad():
                 accumulated_score = cache_obj.reduce_attention(attn_weights)
                 cache_obj.current_attention_scores[layer_idx] = accumulated_score
-
-            attn_weights.untyped_storage().resize_(0)
+            try:
+                attn_weights.untyped_storage().resize_(0)
+            except RuntimeError:
+                pass
 
             new_outputs = list(outputs)
             new_outputs[1] = None
