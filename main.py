@@ -21,7 +21,7 @@ def get_cache_config(method: str, kwargs: dict):
             }
 
         case "otkv":
-            from core.ot_kv import OTKVCache
+            from core.ot_kv_joint import OTKVCache
             return OTKVCache, {
                 "compression_size": kwargs.get('compression_size', 0.5),
                 "recent_size": kwargs.get('recent_size', 0.1),

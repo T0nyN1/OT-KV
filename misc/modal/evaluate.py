@@ -81,7 +81,7 @@ def run(
         methods: str = "otkv",
         tasks: str = "longbench,profile_niah",
         prefill_fraction: float = 0.5,
-        max_length: int = 12000,
+        max_length: int = 10000,
         limit: int = 0,
         wiki_docs: str = "",
         compression_size=0.5,
